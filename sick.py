@@ -3,11 +3,9 @@ from discord.ext import commands, tasks
 import random
 import os
 import json
-from flask import Flask
-from threading import Thread
 
-# إعداد سيرفر الويب البسيط لإبقاء البوت مستيقظاً على Render
-app = Flask('')
+
+
 
 @app.route('/')
 def home():
