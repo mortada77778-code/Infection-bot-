@@ -3,26 +3,21 @@ from discord.ext import commands, tasks
 import random
 import os
 
-# ----------------- إعدادات البوت والصلاحيات ----------------- #
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# التوقيع الرسمي للصانع
 AUTHOR_SIGNATURE = "\n\n_— تم الصناعة بواسطة سيدريك 🪄_"
 
-# إعدادات المعركة والمستشفى الحربي
 MAX_HP = 200          
 current_hp = MAX_HP
 DAMAGE_PER_HIT = 10
 raid_active = False
 
-player_scores = {}      # {user_id: {"name": "اسم", "hits": عدد الضربات}}
-hospital_patients = set() # مجموعة IDs المصابين في المستشفى
-medical_history = {}    # أرشيف السجلات الطبية الشامل
+player_scores = {}      
+hospital_patients = set() 
 
-# قاموس تعاويذ هاري بوتر الحقيقية مع نسب فشل عالية وتكتيكية
 HARRY_POTTER_SPELLS = {
     "Expelliarmus (تعويذة نزع السلاح)": 30,
     "Stupefy (تعويذة التخدير والذهول)": 35,
@@ -41,38 +36,23 @@ HARRY_POTTER_SPELLS = {
     "Furunculus (ظهور بثور غريبة على الوجه)": 55
 }
 
-def init_user_history(user_id):
-    if user_id not in medical_history:
-        medical_history[user_id] = {
-            "attack_count": 0,
-            "hospital_visits": 0,
-            "cures_received": 0
-        }
-
 def get_health_bar(hp, max_hp=200):
     filled = max(0, min(10, hp // (max_hp // 10)))
     empty = 10 - filled
     return "🟥" * filled + "🟩" * empty
 
-# ----------------- واجهة الدفاع المتغيرة بتعاويذ هاري بوتر ----------------- #
 class VillageDefenseView(discord.ui.View):
-    def __init__(self, current_spell_label=None):
+    def __init__(self):
         super().__init__(timeout=None)
-        
-        spell_name = current_spell_label if current_spell_label else random.choice(list(HARRY_POTTER_SPELLS.keys()))
-        fail_chance = HARRY_POTTER_SPELLS[spell_name]
-        
-        self.add_item(DynamicSpellButton(spell_name, fail_chance))
+        self.add_item(AttackButton())
 
-class DynamicSpellButton(discord.ui.Button):
-    def __init__(self, label, fail_chance):
+class AttackButton(discord.ui.Button):
+    def __init__(self):
         super().__init__(
-            label=f"🪄 {label.split(' (')[0]} ({fail_chance}%)",
+            label="⚔️ سحق أكلة الموت! (هجوم)",
             style=discord.ButtonStyle.danger,
-            custom_id=f"hp_spell_{random.randint(1000, 9999)}"
+            custom_id="village_defense_btn"
         )
-        self.spell_name = label
-        self.fail_chance = fail_chance
 
     async def callback(self, interaction: discord.Interaction):
         global current_hp, raid_active
@@ -82,8 +62,6 @@ class DynamicSpellButton(discord.ui.Button):
         user_id = interaction.user.id
         user_name = interaction.user.name
 
-        init_user_history(user_id)
-
         if user_id in hospital_patients:
             await interaction.followup.send(f"🏥 عذراً، أنت مصاب بإصابة بالغة وترقد في المستشفى! لا يمكنك المشاركة حتى يعالجك أي بطل بالأمر: `!علاج`{AUTHOR_SIGNATURE}", ephemeral=True)
             return
@@ -92,33 +70,31 @@ class DynamicSpellButton(discord.ui.Button):
             await interaction.followup.send(f"⚡ القرية آمنة تماماً، لا يوجد أي خطر حالياً!{AUTHOR_SIGNATURE}", ephemeral=True)
             return
 
-        # ----------------- تطبيق نسبة الفشل للتعويذة ----------------- #
+        spell_name, fail_chance = random.choice(list(HARRY_POTTER_SPELLS.items()))
+
         roll = random.randint(1, 100)
         
-        if roll <= self.fail_chance:
+        if roll <= fail_chance:
             fail_messages = [
-                f"💨 تشتت تركيز الساحر **{user_name}** وارتجفت عصاه فانطلقت تعويذة `{self.spell_name}` بلا أي تأثير!",
-                f"🌀 اخفقت النبرة الصوتية لـ **{user_name}** وفشلت طاقة `{self.spell_name}` في اختراق حصون أكلة الموت!",
-                f"🛡️ تنبه زعيم Death Eaters وتصدى لتعويذة `{self.spell_name}` بكل سهولة ويسر!"
+                f"💨 تشتت تركيز الساحر **{user_name}** وارتجفت عصاه فانطلقت تعويذة `{spell_name}` بلا أي تأثير!",
+                f"🌀 اخفقت النبرة الصوتية لـ **{user_name}** وفشلت طاقة `{spell_name}` في اختراق حصون أكلة الموت!",
+                f"🛡️ تنبه زعيم Death Eaters وتصدى لتعويذة `{spell_name}` بكل سهولة ويسر!"
             ]
             await interaction.message.edit(
                 content=f"⚠️ **[ إنذار أحمر: معركة ملحمية تدور الآن! ]**\n"
                         f"أعوان Death Eaters يتقدمون بظلامهم لمحاولة حرق أسوار القرية!\n\n"
                         f"🖤 صحة زعيم الموت المهاجم: `{current_hp}/{MAX_HP}`\n"
                         f"[{get_health_bar(current_hp, MAX_HP)}]\n\n"
-                        f"❌ **فشلت التعويذة!** {random.choice(fail_messages)}"
+                        f"❌ استخدم البطل **{user_name}** تعويذة (`{spell_name}`) بنسبة فشل ({fail_chance}%) ولكن **فشلت الهجمة!** {random.choice(fail_messages)}"
                         f"{AUTHOR_SIGNATURE}",
                 view=VillageDefenseView()
             )
             return
 
-        # تسجيل النقاط والضربات الناجحة للمشارك
         if user_id not in player_scores:
             player_scores[user_id] = {"name": user_name, "hits": 0}
         player_scores[user_id]["hits"] += 1
         player_scores[user_id]["name"] = user_name
-        
-        medical_history[user_id]["attack_count"] += 1
 
         if current_hp > 0:
             current_hp -= DAMAGE_PER_HIT  
@@ -127,31 +103,27 @@ class DynamicSpellButton(discord.ui.Button):
             
             if current_hp > 0:
                 health_bar = get_health_bar(current_hp, MAX_HP)
-                next_view = VillageDefenseView()
                 await interaction.message.edit(
                     content=f"⚠️ **[ إنذار أحمر: معركة ملحمية تدور الآن! ]**\n"
                             f"أعوان Death Eaters يتقدمون بظلامهم لمحاولة حرق أسوار القرية!\n\n"
                             f"🖤 صحة زعيم الموت المهاجم: `{current_hp}/{MAX_HP}`\n"
                             f"[{health_bar}]\n\n"
-                            f"✨ نجح البطل **{user_name}** بتعويذة (`{self.spell_name}`) وأحدث ضرراً بالزعيم (-10 🔥)!",
-                    view=next_view
+                            f"✨ اختار البوت تعويذة هجومية: (`{spell_name}` - فشل: {fail_chance}%)\n"
+                            f"نجح البطل **{user_name}** وأحدث ضرراً بالزعيم (-10 🔥)!",
+                    view=VillageDefenseView()
                 )
             else:
                 raid_active = False
                 
-                # اختيار ضحية عشوائية للمستشفى وتجهيز قائمة المشاركين
                 hospital_msg = ""
                 if player_scores:
                     all_fighters = list(player_scores.keys())
                     victim_id = random.choice(all_fighters)
                     hospital_patients.add(victim_id)
-                    init_user_history(victim_id)
-                    medical_history[victim_id]["hospital_visits"] += 1
                     
                     victim_name = player_scores[victim_id].get("name", "مقاتل مجهول")
                     hospital_msg = f"\n\n🚑 **طوارئ المعركة:** أصيب البطل **{victim_name}** بإصابة بالغة ونُقل للمستشفى! (يمكن لأي بطل علاجه بـ `!علاج @{victim_name}`)."
 
-                # بناء قائمة المشاركين في المعركة
                 participants_list = "📜 **[ قائمة الأبطال المشاركين في التصدي للغارة ]**:\n"
                 for pid, pdata in player_scores.items():
                     participants_list += f"• <@{pid}> (عدد الضربات: **{pdata['hits']}** | الضرر الكلي: **{pdata['hits'] * DAMAGE_PER_HIT}**)\n"
@@ -163,8 +135,7 @@ class DynamicSpellButton(discord.ui.Button):
                             f"{hospital_msg}\n\n"
                             f"📊 استخدم الأوامر التالية للمتابعة:\n"
                             f"• `!صدارة` (لعرض جدول الأبطال)\n"
-                            f"• `!مستشفى` (لعرض المصابين)\n"
-                            f"• `!تاريخ_مرضي` (لمراجعة سجلك)"
+                            f"• `!المصابين` (لعرض قائمة المصابين في المستشفى)"
                             f"{AUTHOR_SIGNATURE}",
                     view=None
                 )
@@ -175,13 +146,12 @@ class DynamicSpellButton(discord.ui.Button):
 async def on_ready():
     print(f"تم تسجيل الدخول بنجاح باسم البوت الجبار في ريلواي: {bot.user}")
 
-# ----------------- ⚡ أمر الهجوم اليدوي وبدء الغارة ----------------- #
 @bot.command(name="هجوم")
 async def start_raid_command(ctx):
     global current_hp, raid_active, player_scores
     current_hp = MAX_HP
     raid_active = True
-    player_scores.clear() # تصفير قائمة المشاركين لمعركة جديدة
+    player_scores.clear() 
     
     health_bar = get_health_bar(MAX_HP, MAX_HP)
     await ctx.send(
@@ -189,19 +159,16 @@ async def start_raid_command(ctx):
         f"تجمع قتلة السحرة وجماعة Death Eaters في الأفق ومعهما طاقة مظلمة لتهشيم البوابات!\n\n"
         f"🖤 صحة زعيم الموت المهاجم: `{current_hp}/{MAX_HP}`\n"
         f"[{health_bar}]\n\n"
-        f"🛡️ يا أهالي القرية والأبطال، اضغطوا على زر التعويذة أدناه بسرعة لإنقاذ الوطن!"
+        f"🛡️ يا أهالي القرية والأبطال، اضغطوا على زر الهجوم أدناه بسرعة لإنقاذ الوطن!"
         f"{AUTHOR_SIGNATURE}",
         view=VillageDefenseView()
     )
 
-# ----------------- 🩹 أمر العلاج والإسعاف ----------------- #
 @bot.command(name="علاج")
 async def cure_hospital_patient(ctx, member: discord.Member):
     global hospital_patients
     if member.id in hospital_patients:
         hospital_patients.remove(member.id)
-        init_user_history(member.id)
-        medical_history[member.id]["cures_received"] += 1
         
         await ctx.send(
             f"🏥✨ **[ إعلان إسعاف عاجل ]** ✨🏥\n\n"
@@ -220,8 +187,7 @@ async def cure_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"⚠️ حدد البطل المراد علاجه، هكذا: `!علاج @الساحر`" + AUTHOR_SIGNATURE)
 
-# ----------------- 🏥 قائمة المستشفى ----------------- #
-@bot.command(name="مستشفى")
+@bot.command(name="المصابين")
 async def list_hospital_patients(ctx):
     if not hospital_patients:
         await ctx.send(f"🏥 المستشفى الحربي خالي تماماً من الإصابات.. الجميع في الميدان وجاهزون للمعركة!{AUTHOR_SIGNATURE}")
@@ -233,24 +199,6 @@ async def list_hospital_patients(ctx):
     report += "\n🪄 استخدم أمر `!علاج @الساحر` لإسعافهم بسرعة!" + AUTHOR_SIGNATURE
     await ctx.send(report)
 
-# ----------------- 📜 السجل العسكري والصحي ----------------- #
-@bot.command(name="تاريخ_مرضي")
-async def medical_history_command(ctx, member: discord.Member = None):
-    target = member if member else ctx.author
-    init_user_history(target.id)
-    
-    stats = medical_history[target.id]
-    await ctx.send(
-        f"📋 **[ السجل العسكري والصحي للبطل ]** 📋\n"
-        f"الملف الخاص بالبطل: {target.mention}\n\n"
-        f"⚡ ضربات الهجوم الناجحة: **{stats['attack_count']}** ضربة\n"
-        f"🛌 إصابات معارك ناتجة عن الغارات: **{stats['hospital_visits']}** مرة\n"
-        f"🩹 مرات علاج وإنقاذ الأبطال الآخرين: **{stats['cures_received']}** مرة\n\n"
-        f"🏥 *مركز هوجوورتس الحربي الرسمي.*"
-        f"{AUTHOR_SIGNATURE}"
-    )
-
-# ----------------- 🏆 لوحة شرف الصدارة ----------------- #
 @bot.command(name="صدارة")
 async def leaderboard_command(ctx):
     if not player_scores:
@@ -273,7 +221,6 @@ async def leaderboard_command(ctx):
         f"🎁 *استمروا في الدفاع لتتصدر القمة!*{AUTHOR_SIGNATURE}"
     )
 
-# ⏰ الغارة التلقائية (كل 12 ساعة)
 @tasks.loop(hours=12)
 async def scheduled_attack():
     global current_hp, raid_active, player_scores
@@ -291,7 +238,7 @@ async def scheduled_attack():
             f"تجمع قتلة السحرة وجماعة Death Eaters في الأفق ومعهما طاقة مظلمة لتهشيم البوابات!\n\n"
             f"🖤 صحة زعيم الموت المهاجم: `{current_hp}/{MAX_HP}`\n"
             f"[{health_bar}]\n\n"
-            f"🛡️ يا أهالي القرية، استعدوا للمعركة واضغطوا على زر التعويذة أدناه!"
+            f"🛡️ يا أهالي القرية، استعدوا للمعركة واضغطوا على زر الهجوم أدناه!"
             f"{AUTHOR_SIGNATURE}",
             view=VillageDefenseView()
         )
