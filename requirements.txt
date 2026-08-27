@@ -1,7 +1,10 @@
 discord.py
-aiohttp
 fastapi
 uvicorn
+aiohttp
+starlette
+itsdangerous
+
 
 
 
