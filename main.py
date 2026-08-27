@@ -112,7 +112,7 @@ class AttackButton(discord.ui.Button):
                     view=None
                 )
 
-HOUSES = {
+HOhouses = {
     "جريفندور": {"name": "جريفندور (Gryffindor)", "emoji": "🦁", "color": 0x740909, "desc": "الجرأة، الشجاعة، والفروسية."},
     "سليذيرين": {"name": "سليذيرين (Slytherin)", "emoji": "🐍", "color": 0x1a472a, "desc": "الطموح، الدهاء، والقيادة."},
     "رافينكلو": {"name": "رافينكلو (Ravenclaw)", "emoji": "🦅", "color": 0x0e1a40, "desc": "الذكاء، الحكمة، والإبداع."},
@@ -121,7 +121,7 @@ HOUSES = {
 
 async def display_house_students(ctx, house_key):
     db = load_json_file(STUDENTS_FILE)
-    info = HOUSES[house_key]
+    info = HOhouses[house_key]
     members = [f"• <@{uid}> ({data['name']})" for uid, data in db.items() if data['house'] == house_key]
     desc = f"📜 **قائمة طلاب {info['emoji']} {info['name']}:**\n\n" + "\n".join(members) if members else f"⚠️ لا يوجد طلاب مسجلين في {info['name']}."
     await ctx.send(embed=discord.Embed(title=f"🏰 سجل {info['name']}", description=desc, color=info['color']).set_footer(text=AUTHOR_SIGNATURE))
@@ -292,9 +292,9 @@ async def raid_leaderboard(ctx):
 async def sorting_hat(ctx):
     msg = await ctx.send(embed=discord.Embed(title="🎩 قبعة التنسيق", description="*تتمتم القبعة...*", color=0x8b5a2b).set_footer(text=AUTHOR_SIGNATURE))
     await asyncio.sleep(3)
-    house_key = random.choice(list(HOUSES.keys()))
+    house_key = random.choice(list(HOhouses.keys()))
     assign_student_house(ctx.author.id, ctx.author.name, house_key)
-    info = HOUSES[house_key]
+    info = HOhouses[house_key]
     await msg.edit(embed=discord.Embed(title="✨ القرار النهائي!", description=f"المعالج: {ctx.author.mention}\nالبيت: **{info['emoji']} {info['name']}**\n\n*{info['desc']}*", color=info['color']).set_footer(text=AUTHOR_SIGNATURE))
 
 @bot.command(name="عرض_جريفندور")
@@ -365,14 +365,16 @@ async def scheduled_attack():
         await channel.send(f"🚨 **[ غارة مرعبة تهدد القرية! ]**" + AUTHOR_SIGNATURE, view=VillageDefenseView())
 
 async def main():
-    token = os.getenv("DISCORD_TOKEN")
-    if not token: return
     port = int(os.environ.get("PORT", 8080))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", port).start()
-    async with bot: await bot.start(token)
+    
+    token = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
+    if not token:
+        print("⚠️ خطأ: توكن البوت غير موجود!")
+        return
+    await bot.start(token)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
