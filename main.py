@@ -4,13 +4,6 @@ import random
 import os
 import json
 import asyncio
-from aiohttp import web
-
-async def handle(request):
-    return web.Response(text="Bot is running and active!")
-
-app = web.Application()
-app.router.add_get("/", handle)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -23,13 +16,20 @@ STUDENTS_FILE = "hogwarts_students.json"
 EVENTS_FILE = "magic_events.json"
 
 def load_json_file(filename):
-    if not os.path.exists(filename): return {}
+    if not os.path.exists(filename): 
+        return {}
     try:
-        with open(filename, "r", encoding="utf-8") as f: return json.load(f)
-    except: return {}
+        with open(filename, "r", encoding="utf-8") as f: 
+            return json.load(f)
+    except:
+        return {}
 
 def save_json_file(filename, data):
-    with open(filename, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        with open(filename, "w", encoding="utf-8") as f: 
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except:
+        pass
 
 def assign_student_house(user_id, username, house_name):
     db = load_json_file(STUDENTS_FILE)
@@ -161,7 +161,7 @@ HOUSES = {
 async def display_house_students(ctx, house_key):
     db = load_json_file(STUDENTS_FILE)
     info = HOUSES[house_key]
-    members = [f"• <@{uid}> ({data['name']})" for uid, data in db.items() if data['house'] == house_key]
+    members = [f"• <@{uid}> ({data.get('name', 'ساحر')})" for uid, data in db.items() if data.get('house'] == house_key]
     desc = f"📜 **قائمة طلاب بيت {info['emoji']} {info['name']}:**\n\n" + "\n".join(members) if members else f"⚠️ لا يوجد أي طلاب مسجلين في بيت **{info['name']}** حتى الآن."
     await ctx.send(embed=discord.Embed(title=f"🏰 سجل طلاب بيت {info['name']}", description=desc, color=info['color']).set_footer(text=AUTHOR_SIGNATURE))
 
@@ -236,14 +236,10 @@ class SpellButton(discord.ui.Button):
             return
 
         if user_id == session.p1.id:
-            if session.p1_choice:
-                await interaction.response.send_message("✓ لقد اخترت تعويذتك مسبقاً لهذه الجولة.", ephemeral=True)
-                return
+            if session.p1_choice: return
             session.p1_choice = self.spell_key
         else:
-            if session.p2_choice:
-                await interaction.response.send_message("✓ لقد اخترت تعويذتك مسبقاً لهذه الجولة.", ephemeral=True)
-                return
+            if session.p2_choice: return
             session.p2_choice = self.spell_key
 
         await interaction.response.send_message("✓ تم اختيار التعويذة بنجاح", ephemeral=True)
@@ -442,4 +438,102 @@ async def raid_leaderboard(ctx):
     medals = ["🥇 الأول", "🥈 الثاني", "🥉 الثالث"]
     for i, p in enumerate(sorted_players[:10]):
         table_lines.append(f"{medals[i] if i < len(medals) else f' #{i+1}     ':<8} | {p['name'][:14].ljust(15)} | {str(p['hits']).ljust(8)}")
-    await ctx.send(f"🏆 **[ صدارة أبطال القرية ]**\n```text\n" + "\n".join(table_lines) + "\n
+    await ctx.send(f"🏆 **[ صدارة أبطال القرية ]**\n```text\n" + "\n".join(table_lines) + "\n```" + AUTHOR_SIGNATURE)
+
+@bot.command(name="قبعة-التنسيق")
+async def sorting_hat(ctx):
+    msg = await ctx.send(embed=discord.Embed(title="🎩 قبعة التنسيق", description="*تتمتم القبعة بكلمات غامضة وهي تفحص أعماق عقلك...*", color=0x8b5a2b).set_footer(text=AUTHOR_SIGNATURE))
+    await asyncio.sleep(3)
+    house_key = random.choice(list(HOUSES.keys()))
+    assign_student_house(ctx.author.id, ctx.author.name, house_key)
+    info = HOUSES[house_key]
+    await msg.edit(embed=discord.Embed(title="✨ القرار النهائي لقبعة التنسيق!", description=f"المعالج: {ctx.author.mention}\n\nالبيت المُختار: **{info['emoji']} {info['name']}**\n\n*{info['desc']}*\n\n*(تم تسجيلك رسمياً في سجلات هذا البيت!)*", color=info['color']).set_footer(text=AUTHOR_SIGNATURE))
+
+@bot.command(name="عرض_جريفندور")
+async def show_gryffindor(ctx): await display_house_students(ctx, "جريفندور")
+
+@bot.command(name="عرض_سليذيرين")
+async def show_slytherin(ctx): await display_house_students(ctx, "سليذيرين")
+
+@bot.command(name="عرض_رافينكلو")
+async def show_ravenclaw(ctx): await display_house_students(ctx, "رافينكلو")
+
+@bot.command(name="عرض_هافلباف")
+async def show_hufflepuff(ctx): await display_house_students(ctx, "هافلباف")
+
+@bot.command(name="انشاء_فعالية")
+async def create_magic_event(ctx, event_name: str, *, event_details: str):
+    db = load_json_file(EVENTS_FILE)
+    db[event_name] = {"details": event_details, "author": ctx.author.name}
+    save_json_file(EVENTS_FILE, db)
+    await ctx.send(f"✨ تم إنشاء وتسجيل الفعالية السحرية **{event_name}** بنجاح لصالح قسم الألعاب السحرية!{AUTHOR_SIGNATURE}")
+
+@bot.command(name="عرض_فعاليات")
+async def show_magic_events(ctx):
+    db = load_json_file(EVENTS_FILE)
+    if not db:
+        await ctx.send(f"⚠️ لا توجد أي فعاليات مسجلة لقسم الألعاب السحرية حالياً.{AUTHOR_SIGNATURE}")
+        return
+    desc = ""
+    for name, data in db.items():
+        desc += f"📌 **{name}**\n• التفاصيل: {data['details']}\n• المشرف: {data['author']}\n──────────────────\n"
+    await ctx.send(embed=discord.Embed(title="📜 سجل فعاليات قسم الألعاب السحرية", description=desc, color=0x00ffcc).set_footer(text=AUTHOR_SIGNATURE))
+
+@bot.command(name="مسح_فعالية")
+async def delete_magic_event(ctx, *, event_name: str):
+    db = load_json_file(EVENTS_FILE)
+    if event_name in db:
+        del db[event_name]
+        save_json_file(EVENTS_FILE, db)
+        await ctx.send(f"🗑️ تم حذف الفعالية السحرية **{event_name}** بنجاح من السجلات!{AUTHOR_SIGNATURE}")
+    else:
+        await ctx.send(f"⚠️ عذراً، لم يتم العثور على فعالية مسجلة بهذا الاسم: `{event_name}`{AUTHOR_SIGNATURE}")
+
+@bot.command(name="مبارزة")
+async def duel_command(ctx, member: discord.Member = None):
+    if not member:
+        await ctx.send("⚠️ يرجى عمل منشن للساحر المراد مبارزته: `!مبارزة @الشخص`", delete_after=10)
+        return
+    if member.id == ctx.author.id:
+        await ctx.send("⚠️ لا يمكنك مبارزة نفسك.", delete_after=10)
+        return
+    if member.bot:
+        await ctx.send("⚠️ البوتات لا تشارك في مبارزات العصي.", delete_after=10)
+        return
+    await DuelSession(ctx, ctx.author, member).start_duel()
+
+@bot.command(name="صدارة-المبارزات")
+async def leaderboard_command(ctx):
+    db = load_leaderboard()
+    if not db:
+        await ctx.send(f"⚠️ لا توجد انتصارات مسجلة في سجل المبارزات حتى الآن.{AUTHOR_SIGNATURE}")
+        return
+    sorted_p = sorted(db.values(), key=lambda x: x["wins"], reverse=True)[:10]
+    desc = "".join([f"🥇 **{p['name']}** ── 🎯 `{p['wins']}` انتصار\n" for p in sorted_p])
+    await ctx.send(embed=discord.Embed(title="📜 صدارة حلبة المبارزات السحرية", description=desc, color=0xd4af37).set_footer(text=AUTHOR_SIGNATURE))
+
+@tasks.loop(hours=12)
+async def scheduled_attack():
+    global current_hp, raid_active, player_scores
+    channel = bot.get_channel(1540623521774960682)
+    if channel:
+        current_hp = MAX_HP
+        raid_active = True
+        player_scores.clear()
+        health_bar = get_health_bar(MAX_HP, MAX_HP)
+        await channel.send(
+            f"🚨 **[ غارة مرعبة تهدد القرية! ]**\n"
+            f"تجمع قتلة السحرة وجماعة Death Eaters في الأفق ومعهما طاقة مظلمة لتهشيم البوابات!\n\n"
+            f"🖤 صحة زعيم الموت المهاجم: `{current_hp}/{MAX_HP}`\n"
+            f"[{health_bar}]\n\n"
+            f"🛡️ يا أهالي القرية، استعدوا للمعركة واضغطوا على زر الهجوم أدناه!"
+            f"{AUTHOR_SIGNATURE}",
+            view=VillageDefenseView()
+        )
+
+if __name__ == "__main__":
+    token = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
+    if not token:
+        print("⚠️ خطأ: توكن البوت غير موجود!")
+    else:
+        bot.run(token)
