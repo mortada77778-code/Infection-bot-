@@ -1,83 +1,113 @@
 import discord
 from discord.ext import commands
 import random
+import asyncio
+import os
+import json
 
-AUTHOR_SIGNATURE = "\n\n_— تم الصناعة بواسطة سيدريك 🪄_"
+AUTHOR_SIGNATURE = "— تم الصناعة بواسطة سيدريك 🪄"
+LEADERBOARD_FILE = "duel_leaderboard.json"
 
-ALL_SPELLS = {
-    # الهجومية (تسبب ضرر)
-    "expelliarmus": {"name": "Expelliarmus", "display": "🪄 نزع السلاح (8 MP)", "mana_cost": 8, "damage": 20, "fail_chance": 10, "type": "هجوم"},
-    "stupefy": {"name": "Stupefy", "display": "⚡ تخدير سحري (15 MP)", "mana_cost": 15, "damage": 35, "fail_chance": 20, "type": "هجوم"},
-    "confringo": {"name": "Confringo", "display": "💥 لعنة الانفجار (22 MP)", "mana_cost": 22, "damage": 45, "fail_chance": 25, "type": "هجوم"},
-    "reducto": {"name": "Reducto", "display": "🔨 تعويذة التفتيت (18 MP)", "mana_cost": 18, "damage": 38, "fail_chance": 22, "type": "هجوم"},
-    "depulso": {"name": "Depulso", "display": "💨 تعويذة الإبعاد (10 MP)", "mana_cost": 10, "damage": 25, "fail_chance": 12, "type": "هجوم"},
-    "bombarda": {"name": "Bombarda", "display": "💣 تفجير كبرى (30 MP)", "mana_cost": 30, "damage": 60, "fail_chance": 35, "type": "هجوم"},
-    "incendio": {"name": "Incendio", "display": "🔥 كرة نار حارقة (16 MP)", "mana_cost": 16, "damage": 33, "fail_chance": 18, "type": "هجوم"},
-    "flipendo": {"name": "Flipendo", "display": "🌀 صدمة ارتدادية (12 MP)", "mana_cost": 12, "damage": 22, "fail_chance": 14, "type": "هجوم"},
+def load_leaderboard():
+    if not os.path.exists(LEADERBOARD_FILE):
+        return {}
+    try:
+        with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
 
-    # الدفاعية (تمنح درعاً مستقلاً يحمي الـ HP، وتربك تعويذة الخصم)
-    "protego": {"name": "Protego", "display": "🛡️ درع حماية (+15 درع)", "mana_cost": 10, "shield": 15, "fail_chance": 8, "penalty_to_enemy": 15, "type": "دفاع"},
-    "salvio": {"name": "Salvio Hexia", "display": "🛡️ حاجز الحماية (+25 درع)", "mana_cost": 18, "shield": 25, "fail_chance": 12, "penalty_to_enemy": 25, "type": "دفاع"},
-    
-    # العلاجية (تزيد نقاط الصحة HP فقط)
-    "episkey": {"name": "Episkey", "display": "💚 شفاء خفيف (+20 HP)", "mana_cost": 15, "heal": 20, "fail_chance": 10, "type": "علاج"},
-    "vulnera": {"name": "Vulnera Sanentur", "display": "✨ شفاء عميق (+35 HP)", "mana_cost": 25, "heal": 35, "fail_chance": 16, "type": "علاج"},
+def save_leaderboard(data):
+    with open(LEADERBOARD_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-    # الشلل والحركة
-    "petrificus": {"name": "Petrificus Totalus", "display": "❄️ الشلل التام (20 MP)", "mana_cost": 20, "damage": 30, "fail_chance": 22, "type": "شلل"},
-    "immobulus": {"name": "Immobulus", "display": "🛑 تجميد الحركة (14 MP)", "mana_cost": 14, "damage": 24, "fail_chance": 15, "type": "شلل"}
+def add_win(user_id, username):
+    db = load_leaderboard()
+    uid = str(user_id)
+    if uid not in db:
+        db[uid] = {"name": username, "wins": 0}
+    db[uid]["wins"] += 1
+    db[uid]["name"] = username
+    save_leaderboard(db)
+
+SPELLS_DATABASE = {
+    "expelliarmus": {"name": "Expelliarmus", "display": "🪄 Expelliarmus · 8 MP", "mana": 8, "damage": 20, "fail": 10, "type": "attack"},
+    "stupefy": {"name": "Stupefy", "display": "⚡ Stupefy · 15 MP", "mana": 15, "damage": 35, "fail": 20, "type": "attack"},
+    "confringo": {"name": "Confringo", "display": "💥 Confringo · 22 MP", "mana": 22, "damage": 45, "fail": 25, "type": "attack"},
+    "reducto": {"name": "Reducto", "display": "🔨 Reducto · 18 MP", "mana": 18, "damage": 38, "fail": 22, "type": "attack"},
+    "protego": {"name": "Protego", "display": "🛡️ Protego · 10 MP", "mana": 10, "shield": 15, "fail": 8, "type": "defense"},
+    "episkey": {"name": "Episkey", "display": "💚 Episkey · 15 MP", "mana": 15, "heal": 20, "fail": 10, "type": "heal"},
+    "incendio": {"name": "Incendio", "display": "🔥 Incendio · 16 MP", "mana": 16, "damage": 33, "fail": 18, "type": "attack"},
+    "depulso": {"name": "Depulso", "display": "💨 Depulso · 10 MP", "mana": 10, "damage": 25, "fail": 12, "type": "attack"}
+}
+
+FLAVOR_MESSAGES = {
+    "attack_hit": [
+        "اشتعلت الشرارة من طرف العصا، ودوّى صوت اصطدام السحر بقوة!",
+        "ارتجّت جدران القاعة من شدة العصف السحري!",
+        "اندفعت طاقة مرعبة نحو الهدف دون أن يمتلك فرصة للهروب!",
+        "تطاير الغبار من الحجارة إثر صدمة التعويذة المباشرة!"
+    ],
+    "shield_up": [
+        "توهجت الأطراف بنور فضي خافت، وتشكل جدار من الطاقة الصلبة حول الساحر!",
+        "التفَّ درع واقٍ محكم حول الساحر ليمتص صدمة القادم!",
+        "انعكست أضواء التعويذات على حاجز سحري مانع لا يُقهر!"
+    ],
+    "heal_magic": [
+        "تسلل دفء سحري غامض ليعيد ترتيب طاقات الجسد المنهك!",
+        "لمع نور أخضر هادئ يداوي آثار الضربات العنيفة!",
+        "تدفقت طاقة متجددة في عروق الساحر لتنعش حماسه!"
+    ],
+    "spell_fail": [
+        "تطاير شرار خافت وفشلت التعويذة في مغادرة طرف العصا!",
+        "تشتت التركيز للحظة عابرة فأجهضت التعويذة في مهدها!",
+        "تردد صدى ضعيف وامتص الهواء طاقة التعويذة بلا أثر!"
+    ]
 }
 
 class SpellSelectionView(discord.ui.View):
     def __init__(self, duel_session):
-        super().__init__(timeout=45)
+        super().__init__(timeout=60)
         self.duel_session = duel_session
         
-        selected_keys = random.sample(list(ALL_SPELLS.keys()), 6)
-        
-        for key in selected_keys:
-            spell = ALL_SPELLS[key]
-            if "shield" in spell:
-                style = discord.ButtonStyle.secondary  # رمادي/محايد للدفاع
-            elif "heal" in spell:
-                style = discord.ButtonStyle.success    # أخضر للعلاج
-            else:
-                style = discord.ButtonStyle.primary    # أزرق للهجوم
-                
-            self.add_item(SpellButton(key, spell, style))
+        keys = random.sample(list(SPELLS_DATABASE.keys()), 6)
+        for k in keys:
+            spell = SPELLS_DATABASE[k]
+            self.add_item(SpellButton(k, spell))
 
 class SpellButton(discord.ui.Button):
-    def __init__(self, spell_key, spell_data, style):
-        super().__init__(label=spell_data["display"], style=style)
-        self.spell_key = spell_key
-        self.spell_data = spell_data
+    def __init__(self, key, spell):
+        super().__init__(label=spell["display"], style=discord.ButtonStyle.secondary)
+        self.spell_key = key
+        self.spell_data = spell
 
     async def callback(self, interaction: discord.Interaction):
         session = self.view.duel_session
         user_id = interaction.user.id
 
         if user_id not in [session.p1.id, session.p2.id]:
-            await interaction.response.send_message("❌ أنت لست مشاركاً في هذه المعركة!", ephemeral=True)
+            await interaction.response.send_message("❌ هذه القاعة ليست مخصصة لك.", ephemeral=True)
             return
 
         p_data = session.p1_data if user_id == session.p1.id else session.p2_data
 
-        if p_data["mp"] < self.spell_data["mana_cost"]:
-            await interaction.response.send_message(f"⚠️ ليس لديك مانا كافية لتنفيذ {self.spell_data['name']}! (تحتاج {self.spell_data['mana_cost']} MP)", ephemeral=True)
+        if p_data["mp"] < self.spell_data["mana"]:
+            await interaction.response.send_message("⚠️ رصيد المانا غير كافٍ لإنشاء هذه التعويذة.", ephemeral=True)
             return
 
         if user_id == session.p1.id:
             if session.p1_choice:
-                await interaction.response.send_message("⚠️ لقد اخترت تعويذتك بالفعل، انتظر خصمك!", ephemeral=True)
+                await interaction.response.send_message("✓ لقد اخترت تعويذتك مسبقاً لهذه الجولة.", ephemeral=True)
                 return
             session.p1_choice = self.spell_key
         else:
             if session.p2_choice:
-                await interaction.response.send_message("⚠️ لقد اخترت تعويذتك بالفعل، انتظر خصمك!", ephemeral=True)
+                await interaction.response.send_message("✓ لقد اخترت تعويذتك مسبقاً لهذه الجولة.", ephemeral=True)
                 return
             session.p2_choice = self.spell_key
 
-        await interaction.response.send_message(f"✨ اخترت **{self.spell_data['name']}** بنجاح! بانتظار الخصم...", ephemeral=True)
+        await interaction.response.send_message("✓ تم اختيار التعويذة", ephemeral=True)
+        await session.update_status_message()
 
         if session.p1_choice and session.p2_choice:
             self.view.stop()
@@ -88,7 +118,6 @@ class DuelSession:
         self.ctx = ctx
         self.p1 = p1
         self.p2 = p2
-        # إحصائيات اللاعبين: الصحة 200، المانا 40، الدرع يبدأ من 0
         self.p1_data = {"hp": 200, "mp": 40, "shield": 0}
         self.p2_data = {"hp": 200, "mp": 40, "shield": 0}
         self.p1_choice = None
@@ -97,139 +126,144 @@ class DuelSession:
         self.message = None
 
     async def start_duel(self):
-        embed = discord.Embed(
-            title="⚡ مبارزة العصي الكبرى - نظام الدروع المستقلة",
-            description=f"المواجهة الملحمية بين:\n🧙‍♂️ **{self.p1.mention}** ضد 🧙‍♂️ **{self.p2.mention}**\n\nاختر من قائمة التعويذات أدناه:",
-            color=discord.Color.dark_purple()
-        )
-        embed.add_field(name=f"حالة {self.p1.name}", value="❤️ HP: 200/200\n🛡️ الدرع: 0\n🔮 MP: 40/40", inline=True)
-        embed.add_field(name=f"حالة {self.p2.name}", value="❤️ HP: 200/200\n🛡️ الدرع: 0\n🔮 MP: 40/40", inline=True)
-        embed.set_footer(text=f"— الجولة رقم {self.round_num} | {AUTHOR_SIGNATURE}")
-
+        embed = self.build_main_embed("✨ اختر تعويذتك")
         view = SpellSelectionView(self)
         self.message = await self.ctx.send(embed=embed, view=view)
 
+    def build_main_embed(self, status_text):
+        embed = discord.Embed(
+            title="⚔️ مبارزة العصي السحرية",
+            description=f"**الجولة {self.round_num:02d}**\n\n"
+                        f"🧙‍♂️ {self.p1.name}   ❤️ {self.p1_data['hp']}   🔮 {self.p1_data['mp']}\n"
+                        f"VS\n"
+                        f"🧙‍♂️ {self.p2.name}   ❤️ {self.p2_data['hp']}   🔮 {self.p2_data['mp']}\n\n"
+                        f"──────────────────\n"
+                        f"{status_text}",
+            color=0x2b1338
+        )
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+        return embed
+
+    async def update_status_message(self):
+        p1_status = "✓ تم الاختيار" if self.p1_choice else "⏳ يختار..."
+        p2_status = "✓ تم الاختيار" if self.p2_choice else "⏳ يختار..."
+        text = f"حالة الخصوم:\n{self.p1.name}: {p1_status}  |  {self.p2.name}: {p2_status}"
+        embed = self.build_main_embed(text)
+        try:
+            await self.message.edit(embed=embed)
+        except:
+            pass
+
     async def execute_round(self, interaction: discord.Interaction):
-        # منح +7 مانا لكل لاعب في بداية الجولة
         self.p1_data["mp"] = min(40, self.p1_data["mp"] + 7)
         self.p2_data["mp"] = min(40, self.p2_data["mp"] + 7)
 
-        s1 = ALL_SPELLS[self.p1_choice]
-        s2 = ALL_SPELLS[self.p2_choice]
+        s1 = SPELLS_DATABASE[self.p1_choice]
+        s2 = SPELLS_DATABASE[self.p2_choice]
 
-        self.p1_data["mp"] -= s1["mana_cost"]
-        self.p2_data["mp"] -= s2["mana_cost"]
+        self.p1_data["mp"] -= s1["mana"]
+        self.p2_data["mp"] -= s2["mana"]
 
-        # حساب نسب الفشل الأساسية مع تأثير الدروع على الخصم
-        p1_fail_chance = s1["fail_chance"]
-        p2_fail_chance = s2["fail_chance"]
+        p1_fail = random.randint(1, 100) <= s1["fail"]
+        p2_fail = random.randint(1, 100) <= s2["fail"]
 
-        if "shield" in s2: # درع اللاعب الثاني يربك تعويذة الأول
-            p1_fail_chance += s2.get("penalty_to_enemy", 0)
-        if "shield" in s1: # درع اللاعب الأول يربك تعويذة الثاني
-            p2_fail_chance += s1.get("penalty_to_enemy", 0)
+        p1_result_line = ""
+        p2_result_line = ""
+        flavor_picks = []
 
-        p1_fail = random.randint(1, 100) <= p1_fail_chance
-        p2_fail = random.randint(1, 100) <= p2_fail_chance
-
-        result_text = f"⚔️ **نتائج الجولة رقم {self.round_num}:**\n\n"
-
-        # تخزين الأضرار والعلاجات لتطبيقها بالتزامن
-        p1_action_msg = ""
-        p2_action_msg = ""
-
-        # معالجة اللاعب الأول
         if p1_fail:
-            shield_msg = " بسبب تشويت درع الخصم!" if "shield" in s2 else ""
-            p1_action_msg = f"❌ **{self.p1.name}**: تعويذة {s1['name']} فشلت{shield_msg}!\n"
+            p1_result_line = f"{s1['name']} فشلت — لم تسبب ضررًا"
+            flavor_picks.append(random.choice(FLAVOR_MESSAGES["spell_fail"]))
         else:
-            if "shield" in s1:
-                sh_val = s1["shield"]
-                self.p1_data["shield"] = sh_val  # تعيين قيمة الدرع الجديد
-                p1_action_msg = f"🛡️ **{self.p1.name}** أنشأ درع حماية بقوة `{sh_val}` وارتبك الخصم!\n"
-            elif "heal" in s1:
-                heal_val = s1["heal"]
-                self.p1_data["hp"] = min(200, self.p1_data["hp"] + heal_val)
-                p1_action_msg = f"💚 **{self.p1.name}** ألقى تعويذة شفاء واستعاد `+{heal_val}` HP!\n"
-            else:
+            if s1["type"] == "attack":
                 dmg = s1["damage"]
-                # الهجوم يوجه للخصم (يأكل درعه أولاً ثم صحته)
                 absorbed = min(self.p2_data["shield"], dmg)
-                remaining_dmg = dmg - absorbed
+                rem = dmg - absorbed
                 self.p2_data["shield"] -= absorbed
-                self.p2_data["hp"] -= remaining_dmg
-                p1_action_msg = f"🪄 **{self.p1.name}** ألقى {s1['name']} وأحدث ضرر `{dmg}` (تم امتصاص `{absorbed}` بالدرع، وباقي `{remaining_dmg}` على HP الخصم)!\n"
+                self.p2_data["hp"] -= rem
+                p1_result_line = f"{s1['name']} نجحت — {dmg} ضرر"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["attack_hit"]))
+            elif s1["type"] == "defense":
+                self.p1_data["shield"] = s1["shield"]
+                p1_result_line = f"{s1['name']} نجحت — درع بقوة {s1['shield']}"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["shield_up"]))
+            elif s1["type"] == "heal":
+                self.p1_data["hp"] = min(200, self.p1_data["hp"] + s1["heal"])
+                p1_result_line = f"{s1['name']} نجحت — شفاء +{s1['heal']} HP"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["heal_magic"]))
 
-        # معالجة اللاعب الثاني
         if p2_fail:
-            shield_msg = " بسبب تشويت درع الخصم!" if "shield" in s1 else ""
-            p2_action_msg = f"❌ **{self.p2.name}**: تعويذة {s2['name']} فشلت{shield_msg}!\n\n"
+            p2_result_line = f"{s2['name']} فشلت — لم تسبب ضررًا"
+            flavor_picks.append(random.choice(FLAVOR_MESSAGES["spell_fail"]))
         else:
-            if "shield" in s2:
-                sh_val = s2["shield"]
-                self.p2_data["shield"] = sh_val
-                p2_action_msg = f"🛡️ **{self.p2.name}** أنشأ درع حماية بقوة `{sh_val}` وارتبك الخصم!\n\n"
-            elif "heal" in s2:
-                heal_val = s2["heal"]
-                self.p2_data["hp"] = min(200, self.p2_data["hp"] + heal_val)
-                p2_action_msg = f"💚 **{self.p2.name}** ألقى تعويذة شفاء واستعاد `+{heal_val}` HP!\n\n"
-            else:
+            if s2["type"] == "attack":
                 dmg = s2["damage"]
                 absorbed = min(self.p1_data["shield"], dmg)
-                remaining_dmg = dmg - absorbed
+                rem = dmg - absorbed
                 self.p1_data["shield"] -= absorbed
-                self.p1_data["hp"] -= remaining_dmg
-                p2_action_msg = f"🪄 **{self.p2.name}** ألقى {s2['name']} وأحدث ضرر `{dmg}` (تم امتصاص `{absorbed}` بالدرع، وباقي `{remaining_dmg}` على HP الخصم)!\n\n"
+                self.p1_data["hp"] -= rem
+                p2_result_line = f"{s2['name']} نجحت — {dmg} ضرر"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["attack_hit"]))
+            elif s2["type"] == "defense":
+                self.p2_data["shield"] = s2["shield"]
+                p2_result_line = f"{s2['name']} نجحت — درع بقوة {s2['shield']}"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["shield_up"]))
+            elif s2["type"] == "heal":
+                self.p2_data["hp"] = min(200, self.p2_data["hp"] + s2["heal"])
+                p2_result_line = f"{s2['name']} نجحت — شفاء +{s2['heal']} HP"
+                flavor_picks.append(random.choice(FLAVOR_MESSAGES["heal_magic"]))
 
-        result_text += p1_action_msg + p2_action_msg
-
-        # ضمان حدود الصحة بين 0 و 200
         self.p1_data["hp"] = max(0, min(200, self.p1_data["hp"]))
         self.p2_data["hp"] = max(0, min(200, self.p2_data["hp"]))
         self.p1_data["shield"] = max(0, self.p1_data["shield"])
         self.p2_data["shield"] = max(0, self.p2_data["shield"])
 
-        result_text += f"📊 **الحالة بعد الجولة {self.round_num}:**\n"
-        result_text += f"🧙‍♂️ **{self.p1.name}**: ❤️ HP `{self.p1_data['hp']}/200` | 🛡️ الدرع: `{self.p1_data['shield']}` | 🔮 MP `{self.p1_data['mp']}/40`\n"
-        result_text += f"🧙‍♂️ **{self.p2.name}**: ❤️ HP `{self.p2_data['hp']}/200` | 🛡️ الدرع: `{self.p2_data['shield']}` | 🔮 MP `{self.p2_data['mp']}/40`\n"
+        active_flavor = random.choice(flavor_picks) if flavor_picks else "تردد صدى التعويذات في أرجاء القاعة."
 
-        # فحص انتهاء المعركة
+        result_desc = (
+            f"**⚔️ الجولة {self.round_num:02d}**\n\n"
+            f"🧙‍♂️ {self.p1.name}\n"
+            f"🪄 {s1['name']}\n\n"
+            f"VS\n\n"
+            f"🧙‍♂️ {self.p2.name}\n"
+            f"🔥 {s2['name']}\n\n"
+            f"💬 *\"{active_flavor}\"*\n\n"
+            f"✨ **النتيجة**\n"
+            f"• {self.p1.name}: {p1_result_line}\n"
+            f"• {self.p2.name}: {p2_result_line}\n\n"
+            f"──────────────────\n"
+            f"❤️ {self.p1.name} {self.p1_data['hp']}/200\n"
+            f"❤️ {self.p2.name} {self.p2_data['hp']}/200\n\n"
+            f"🔮 المانا تتجدد +7 في بداية الجولة التالية"
+        )
+
+        embed = discord.Embed(
+            title="⚡ كشف التعويذات",
+            description=result_desc,
+            color=0xd4af37
+        )
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+
         if self.p1_data["hp"] == 0 or self.p2_data["hp"] == 0:
-            if self.p1_data["hp"] > self.p2_data["hp"]:
-                winner = self.p1
-            elif self.p2_data["hp"] > self.p1_data["hp"]:
-                winner = self.p2
-            else:
-                winner = None
-
-            embed = discord.Embed(
-                title="🏆 نهاية معركة العصي السحرية الكبرى!",
-                description=result_text,
-                color=discord.Color.gold()
-            )
-            if winner:
-                embed.add_field(name="👑 بطل الحلبة المنتصر", value=f"الساحر الأسطوري **{winner.mention}** حسم المعركة بجدارة!", inline=False)
-            else:
-                embed.add_field(name="🤝 تعادل بطولي", value="انتهت المعركة بتساوي الطاقات بين السحرة!", inline=False)
+            winner = self.p1 if self.p1_data["hp"] > self.p2_data["hp"] else self.p2
+            add_win(winner.id, winner.name)
             
-            embed.set_footer(text=AUTHOR_SIGNATURE)
+            embed.title = "🏆 حسمت المعركة السحرية"
+            embed.description += f"\n\n👑 **بطل الحلبة:** {winner.mention}\n*(تم تسجيل الفوز في لوحة صدارة المبارزات)*"
             await interaction.response.edit_message(content=None, embed=embed, view=None)
             return
 
-        # الانتقال للجولة التالية
         self.round_num += 1
         self.p1_choice = None
         self.p2_choice = None
 
-        embed = discord.Embed(
-            title=f"⚔️ ملحمة هوجوورتس - الجولة {self.round_num}",
-            description=result_text + "\n🔄 **بدأت الجولة التالية! حصل كلا اللاعبين على +7 MP. اختر من قائمة التعويذات العشوائية الجديدة:**",
-            color=discord.Color.blurple()
-        )
-        embed.set_footer(text=AUTHOR_SIGNATURE)
-
-        view = SpellSelectionView(self)
-        await interaction.response.edit_message(content=None, embed=embed, view=view)
+        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        
+        await asyncio.sleep(4)
+        
+        next_embed = self.build_main_embed("✨ اختر تعويذتك")
+        next_view = SpellSelectionView(self)
+        self.message = await self.ctx.send(embed=next_embed, view=next_view)
 
 class DuelCog(commands.Cog):
     def __init__(self, bot):
@@ -238,19 +272,39 @@ class DuelCog(commands.Cog):
     @commands.command(name="مبارزة")
     async def duel_command(self, ctx, member: discord.Member = None):
         if not member:
-            await ctx.send(f"⚠️ **يجب عليك عمل منشن للساحر الذي تريد مبارزته!**\nمثال: `!مبارزة @اسم_الشخص`{AUTHOR_SIGNATURE}")
+            await ctx.send("⚠️ يرجى عمل منشن للساحر المراد مبارزته: `!مبارزة @اسم_الشخص`", delete_after=10)
             return
-        
         if member.id == ctx.author.id:
-            await ctx.send(f"⚠️ **لا يمكنك مبارزة نفسك يا أسطورة!**{AUTHOR_SIGNATURE}")
+            await ctx.send("⚠️ لا يمكنك مبارزة نفسك.", delete_after=10)
             return
-
         if member.bot:
-            await ctx.send(f"⚠️ **الآليون لا يشاركون في مبارزات العصي، اختر ساحراً حقيقياً!**{AUTHOR_SIGNATURE}")
+            await ctx.send("⚠️ البوتات لا تشارك في مبارزات العصي.", delete_after=10)
             return
 
         session = DuelSession(ctx, ctx.author, member)
         await session.start_duel()
+
+    @commands.command(name="صدارة-المبارزات")
+    async def leaderboard_command(self, ctx):
+        db = load_leaderboard()
+        if not db:
+            await ctx.send("⚠️ لا توجد أي انتصارات مسجلة في سجل المبارزات حتى الآن.")
+            return
+
+        sorted_players = sorted(db.values(), key=lambda x: x["wins"], reverse=True)[:10]
+
+        desc = "🏆 **قائمة أبطال حلبة السحر:**\n\n"
+        for idx, player in enumerate(sorted_players, 1):
+            medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
+            desc += f"{medal} **{player['name']}** ── 🎯 `{player['wins']}` انتصار\n"
+
+        embed = discord.Embed(
+            title="📜 لوحة صدارة المبارزات",
+            description=desc,
+            color=0xd4af37
+        )
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+        await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(DuelCog(bot))
