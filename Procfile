@@ -1,2 +1,3 @@
-worker: python sick.py
+web: python main.py
+
 
