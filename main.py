@@ -161,7 +161,8 @@ HOUSES = {
 async def display_house_students(ctx, house_key):
     db = load_json_file(STUDENTS_FILE)
     info = HOUSES[house_key]
-    members = [f"• <@{uid}> ({data.get('name', 'ساحر')})" for uid, data in db.items() if data.get('house'] == house_key]
+    members = [f"• <@{uid}> ({data.get('name', 'ساحر')})" for uid, data in db.items() if data.get('house') == house_key]
+
     desc = f"📜 **قائمة طلاب بيت {info['emoji']} {info['name']}:**\n\n" + "\n".join(members) if members else f"⚠️ لا يوجد أي طلاب مسجلين في بيت **{info['name']}** حتى الآن."
     await ctx.send(embed=discord.Embed(title=f"🏰 سجل طلاب بيت {info['name']}", description=desc, color=info['color']).set_footer(text=AUTHOR_SIGNATURE))
 
