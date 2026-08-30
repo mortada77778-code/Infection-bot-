@@ -122,6 +122,14 @@ def normalize_house(name):
     if not name: return None
     return HOUSE_ALIASES.get(name.strip().lower())
 
+def house_from_database(guild_id: int, user_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT house FROM members_houses WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+    row = cur.fetchone()
+    conn.close()
+    return row["house"] if row else None
+
 def add_points(guild_id: int, house: str, amount: int, user_id, moderator_id: int, reason: str):
     ensure_guild(guild_id)
     conn = get_db()
@@ -130,7 +138,7 @@ def add_points(guild_id: int, house: str, amount: int, user_id, moderator_id: in
     cur.execute("""
         INSERT INTO point_logs (guild_id, house, amount, user_id, moderator_id, reason, created_at, undone)
         VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-    """, (guild_id, house, amount, user_id, moderator_id, reason, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    """, (guild_id, house, amount, user_id, moderator_id, reason, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
     log_id = cur.lastrowid
     cur.execute("SELECT points FROM house_scores WHERE guild_id = ? AND house = ?", (guild_id, house))
     row = cur.fetchone()
@@ -239,24 +247,9 @@ def make_embed(title, description="", color=None):
     embed.set_footer(text=AUTHOR_SIGNATURE)
     return embed
 
-def get_health_bar(hp, max_hp=200, length=12):
-    hp = max(0, min(max_hp, hp))
-    filled = round((hp / max_hp) * length)
-    return "🟥" * filled + "⬛" * (length - filled)
-
-def get_mana_bar(mp, max_mp=40, length=10):
-    mp = max(0, min(max_mp, mp))
-    filled = round((mp / max_mp) * length)
-    return "🔵" * filled + "⬛" * (length - filled)
-
-def player_status(name, data):
-    shield = data.get("shield", 0)
-    shield_text = f"🛡️ {shield}" if shield > 0 else "🛡️ —"
-    return f"**{name}**\n❤️ `{data['hp']}/{MAX_HP}`\n{get_health_bar(data['hp'], MAX_HP)}\n🔮 `{data['mp']}/{MAX_MP}`\n{get_mana_bar(data['mp'], MAX_MP)}\n{shield_text}"
-
 
 # =========================================================
-# البيوت
+# البيوت وقبعة التنسيق (4 أسئلة)
 # =========================================================
 
 HOUSES = {
@@ -265,11 +258,6 @@ HOUSES = {
     "رافينكلو": {"name": "رافينكلو (Ravenclaw)", "emoji": "🦅", "color": 0x0E1A40, "desc": "الحكمة والذكاء والإبداع."},
     "هافلباف": {"name": "هافلباف (Hufflepuff)", "emoji": "🦡", "color": 0xECB939, "desc": "الإخلاص والعدالة والعمل الجاد."}
 }
-
-
-# =========================================================
-# قبعة التنسيق التفاعلية (4 أسئلة)
-# =========================================================
 
 class SortingHatQuizView(discord.ui.View):
     def __init__(self, user, guild_id):
@@ -372,120 +360,87 @@ async def sorting_hat(ctx):
 
 
 # =========================================================
-# نظام الغارات والمستشفى
+# استمارة إضافة النقاط للطالب (Modal)
 # =========================================================
 
-HARRY_POTTER_SPELLS = {
-    "Expelliarmus": 30, "Stupefy": 35, "Expecto Patronum": 45,
-    "Reducto": 50, "Petrificus Totalus": 40, "Confundo": 55, "Incendio": 45
-}
+class AddPointsModal(discord.ui.Modal, title="✨ استمارة إضافة نقاط السحر"):
+    student_input = discord.ui.TextInput(
+        label="منشن الساحر أو الآي دي (ID)",
+        placeholder="مثال: @سيدريك أو 123456789",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    points_input = discord.ui.TextInput(
+        label="عدد النقاط",
+        placeholder="اكتب رقماً صحيحاً مثل: 50",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    reason_input = discord.ui.TextInput(
+        label="سبب إضافة النقاط",
+        placeholder="مثال: الفوز في مسابقة الأعشاب السحرية",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
 
-class VillageDefenseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(AttackButton())
+    async def on_submit(self, interaction: discord.Interaction):
+        student_text = self.student_input.value.strip()
+        points_text = self.points_input.value.strip()
+        reason = self.reason_input.value.strip()
 
-class AttackButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="⚔️ شارك في الدفاع", style=discord.ButtonStyle.danger, custom_id="village_defense_btn")
+        target_member = None
+        if interaction.guild:
+            cleaned_id = student_text.replace("<@", "").replace(">", "").replace("!", "")
+            if cleaned_id.isdigit():
+                target_member = interaction.guild.get_member(int(cleaned_id))
+                if not target_member:
+                    try:
+                        target_member = await interaction.guild.fetch_member(int(cleaned_id))
+                    except:
+                        pass
 
-    async def callback(self, interaction: discord.Interaction):
-        global current_hp, raid_active
-        await interaction.response.defer(ephemeral=True)
-        user_id, user_name = interaction.user.id, interaction.user.display_name
+        if not target_member:
+            return await interaction.response.send_message("❌ لم أتمكن من العثور على هذا الساحر! تأكد من المنشن.", ephemeral=True)
 
-        if user_id in hospital_patients:
-            return await interaction.followup.send("🏥 أنت في المستشفى الحربي.", ephemeral=True)
-        if not raid_active:
-            return await interaction.followup.send("🕯️ لا توجد غارة نشطة.", ephemeral=True)
-
-        _, fail_chance = random.choice(list(HARRY_POTTER_SPELLS.items()))
-        if random.randint(1, 100) <= fail_chance:
-            return await interaction.followup.send("❌ فشلت تعويذتك.", ephemeral=True)
-
-        if user_id not in player_scores:
-            player_scores[user_id] = {"name": user_name, "hits": 0}
-        player_scores[user_id]["hits"] += 1
-        current_hp = max(0, current_hp - DAMAGE_PER_HIT)
-
-        if current_hp > 0:
-            return await interaction.followup.send(f"⚔️ أصبت زعيم الغارة! الضرر: `{DAMAGE_PER_HIT}`", ephemeral=True)
-
-        raid_active = False
-        if player_scores:
-            hospital_patients.add(random.choice(list(player_scores.keys())))
-        await interaction.message.edit(embed=make_embed("🏆 انتهت الغارة — انتصر الأبطال", "تم سحق زعيم الغارة!", COLORS["gold"]), view=None)
-
-async def send_raid(channel):
-    global current_hp, raid_active, player_scores
-    if raid_active: return False
-    current_hp, raid_active = MAX_HP, True
-    player_scores.clear()
-    await channel.send(embed=make_embed("🚨 غارة على القرية", f"ظهرت قوى مظلمة!\n🖤 الصحة: `{current_hp}/{MAX_HP}`", COLORS["danger"]), view=VillageDefenseView())
-    return True
-
-@bot.command(name="هجوم")
-async def start_raid_command(ctx):
-    if raid_active: return await ctx.send("⚠️ هناك غارة قائمة بالفعل.")
-    await send_raid(ctx.channel)
-
-@bot.command(name="علاج")
-async def cure_hospital_patient(ctx, member: discord.Member = None):
-    if not member: return await ctx.send("⚠️ حدد الساحر بـ `!علاج @الساحر`.")
-    if member.id in hospital_patients:
-        hospital_patients.remove(member.id)
-        await ctx.send(embed=make_embed("💚 علاج ناجح", f"تم علاج {member.mention}.", COLORS["success"]))
-    else:
-        await ctx.send("🔮 هذا الساحر ليس مصاباً.")
-
-
-# =========================================================
-# نظام النقاط التفاعلي (خطوة بخطوة)
-# =========================================================
-
-@bot.command(name="إضافة-نقاط")
-async def add_points_interactive(ctx):
-    if not can_manage_cup(ctx.author): 
-        return await ctx.send("❌ ليس لديك صلاحية لإدارة كأس المنازل.", delete_after=10)
-
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
-    try:
-        await ctx.send("🏰 **[1/3]** أكتب اسم المنزل المراد إضافة النقاط إليه (جريفندور، سليذرين، رافنكلو، هافلباف):")
-        msg_house = await bot.wait_for('message', timeout=30.0, check=check)
-        selected_house = normalize_house(msg_house.content.strip())
-        
-        if not selected_house:
-            return await ctx.send("❌ اسم المنزل غير صحيح. تم إلغاء العملية.", delete_after=10)
-
-        await ctx.send(f"⭐ **[2/3]** كم عدد النقاط المراد إضافتها لـ **{selected_house}**؟ (اكتب رقماً):")
-        msg_points = await bot.wait_for('message', timeout=30.0, check=check)
-        
         try:
-            points = int(msg_points.content.strip())
+            points = int(points_text)
             if points <= 0: raise ValueError()
         except ValueError:
-            return await ctx.send("❌ يجب إدخال رقم صحيح أكبر من الصفر. تم إلغاء العملية.", delete_after=10)
+            return await interaction.response.send_message("❌ عدد النقاط يجب أن يكون رقماً صحيحاً أكبر من الصفر.", ephemeral=True)
 
-        await ctx.send(f"📝 **[3/3]** ما هو سبب إضافة النقاط لـ **{selected_house}**؟:")
-        msg_reason = await bot.wait_for('message', timeout=45.0, check=check)
-        reason = msg_reason.content.strip()
+        house = house_from_database(interaction.guild.id, target_member.id)
+        if not house:
+            students_db = load_json_file(STUDENTS_FILE)
+            user_data = students_db.get(str(target_member.id))
+            if user_data and "house" in user_data:
+                house = user_data["house"]
 
-        log_id, new_score = add_points(ctx.guild.id, selected_house, points, None, ctx.author.id, reason)
+        if not house:
+            return await interaction.response.send_message(f"❌ الساحر {target_member.mention} لم يتم تنصيبه في منزل بعد!", ephemeral=True)
 
-        embed = discord.Embed(title="✨ تم تسجيل النقاط بنجاح", color=0x57F287)
-        embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
+        log_id, new_score = add_points(interaction.guild.id, house, points, target_member.id, interaction.user.id, reason)
+        emoji = HOUSE_ROLES[house]
+
+        embed = discord.Embed(title="✨ تم تسجيل النقاط بنجاح عبر الاستمارة", color=0x57F287)
+        embed.add_field(name="🧙 الساحر", value=target_member.mention, inline=True)
+        embed.add_field(name="🏠 المنزل المرتبط", value=f"{emoji} **{house}**", inline=True)
         embed.add_field(name="⭐ النقاط المضافة", value=f"**+{points:,}**", inline=True)
         embed.add_field(name="📝 السبب", value=reason, inline=False)
         embed.add_field(name="🏆 رصيد المنزل الجديد", value=f"**{new_score:,} نقطة**", inline=False)
         embed.set_footer(text=AUTHOR_SIGNATURE)
-        
-        await ctx.send(embed=embed)
 
-    except asyncio.TimeoutError:
-        await ctx.send("⏳ انتهى الوقت المخصص ولم تقم بالرد. تم إلغاء العملية.", delete_after=10)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@bot.tree.command(name="إضافة-نقاط", description="فتح استمارة إضافة النقاط للساحر سراً")
+async def slash_add_points_form(interaction: discord.Interaction):
+    if not can_manage_cup(interaction.user):
+        return await interaction.response.send_message("❌ ليس لديك صلاحية لإدارة كأس المنازل.", ephemeral=True)
+    await interaction.response.send_modal(AddPointsModal())
+
+
+# =========================================================
+# أوامر كأس المنازل الأساسية
+# =========================================================
 
 @bot.command(name="الكأس")
 async def cup_command(ctx):
@@ -522,7 +477,11 @@ async def logs_cmd(ctx):
 @bot.event
 async def on_ready():
     init_db()
-    bot.add_view(VillageDefenseView())
+    try:
+        await bot.tree.sync()
+        print("🪄 تم مزامنة الأوامر التفاعلية (Slash Commands) بنجاح.")
+    except Exception as e:
+        print(f"⚠️ خطأ في مزامنة الأوامر: {e}")
     print(f"🪄 بوت هوجوارتس متصل بنجاح: {bot.user}")
 
 @bot.event
