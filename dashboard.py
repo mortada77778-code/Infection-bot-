@@ -1903,33 +1903,21 @@ class DuelSession:
     ):
 
         description = (
+    f"## ✦ الجولة {self.round_num:02d} ✦\n\n"
 
-            f"## ✦ الجولة "
-            f"{self.round_num:02d} ✦\n\n"
+    f"### 🧙 {self.p1.display_name}\n"
+    f"{player_status(self.p1.display_name, self.p1_data)}\n\n"
 
-            f"### 🧙 "
-            f"{self.p1.display_name}\n"
+    f"## ⚔️ VS ⚔️\n\n"
 
-            f"{player_status("
-                f"self.p1.display_name,"
-                f"self.p1_data"
-            f")}\n\n"
+    f"### 🧙 {self.p2.display_name}\n"
+    f"{player_status(self.p2.display_name, self.p2_data)}\n\n"
 
-            f"## ⚔️ VS ⚔️\n\n"
+    "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            f"### 🧙 "
-            f"{self.p2.display_name}\n"
+    f"✨ **حالة الجولة**\n{status_text}"
+)
 
-            f"{player_status("
-                f"self.p2.display_name,"
-                f"self.p2_data"
-            f")}\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-
-            f"✨ **حالة الجولة**\n"
-            f"{status_text}"
-        )
 
 
         return make_embed(
