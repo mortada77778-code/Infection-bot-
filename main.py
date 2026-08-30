@@ -1,8 +1,10 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import random
 import os
 import json
+import sqlite3
 import asyncio
 from datetime import datetime
 
@@ -25,6 +27,7 @@ AUTHOR_SIGNATURE = "✦ صُنع بعناية بواسطة سيدريك 🪄"
 LEADERBOARD_FILE = "duel_leaderboard.json"
 STUDENTS_FILE = "hogwarts_students.json"
 EVENTS_FILE = "magic_events.json"
+DB_FILE = "house_cup.db"
 
 # ضع ID قناة الغارات هنا
 RAID_CHANNEL_ID = 1540623521774960682
@@ -43,9 +46,175 @@ hospital_patients = set()
 # جميع المبارزات النشطة
 active_duels = {}
 
+# إعدادات منازل كأس المنازل
+HOUSE_ROLES = {
+    "جريفندور": "🦁",
+    "هافلباف": "🦡",
+    "رافنكلو": "🦅",
+    "سليذرين": "🐍",
+}
+
+HOUSE_ALIASES = {
+    "جريفندور": "جريفندور", "gryffindor": "جريفندور",
+    "هافلباف": "هافلباف", "hufflepuff": "هافلباف",
+    "رافنكلو": "رافنكلو", "ravenclaw": "رافنكلو",
+    "سليذرين": "سليذرين", "slytherin": "سليذرين",
+}
+
 
 # =========================================================
-# أدوات قاعدة البيانات
+# أدوات قاعدة بيانات كأس المنازل (SQLite)
+# =========================================================
+
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS house_scores (
+            guild_id INTEGER NOT NULL,
+            house TEXT NOT NULL,
+            points INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, house)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS members_houses (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            house TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS point_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            house TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            user_id INTEGER,
+            moderator_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            undone INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def ensure_guild(guild_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    for house in HOUSE_ROLES:
+        cur.execute("""
+            INSERT OR IGNORE INTO house_scores (guild_id, house, points)
+            VALUES (?, ?, 0)
+        """, (guild_id, house))
+    conn.commit()
+    conn.close()
+
+def can_manage_cup(member: discord.Member):
+    if member.guild_permissions.administrator:
+        return True
+    allowed_roles = {"مدير الكأس", "مشرف الكأس", "House Cup", "Cup Manager"}
+    return any(role.name in allowed_roles for role in member.roles)
+
+def normalize_house(name):
+    if not name: return None
+    return HOUSE_ALIASES.get(name.strip().lower())
+
+def house_from_roles(member: discord.Member):
+    found = []
+    for role in member.roles:
+        house = normalize_house(role.name)
+        if house and house not in found:
+            found.append(house)
+    if len(found) == 1: return found[0], None
+    if len(found) > 1: return None, "العضو لديه أكثر من رتبة منزل."
+    return None, None
+
+def house_from_database(guild_id: int, user_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT house FROM members_houses WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+    row = cur.fetchone()
+    conn.close()
+    return row["house"] if row else None
+
+def resolve_member_house(member: discord.Member):
+    house, error = house_from_roles(member)
+    if error: return None, error
+    if house: return house, None
+    house = house_from_database(member.guild.id, member.id)
+    if house: return house, None
+    return None, None
+
+def add_points(guild_id: int, house: str, amount: int, user_id, moderator_id: int, reason: str):
+    ensure_guild(guild_id)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE house_scores SET points = points + ? WHERE guild_id = ? AND house = ?", (amount, guild_id, house))
+    cur.execute("""
+        INSERT INTO point_logs (guild_id, house, amount, user_id, moderator_id, reason, created_at, undone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+    """, (guild_id, house, amount, user_id, moderator_id, reason, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    log_id = cur.lastrowid
+    cur.execute("SELECT points FROM house_scores WHERE guild_id = ? AND house = ?", (guild_id, house))
+    row = cur.fetchone()
+    new_points = row["points"]
+    conn.commit()
+    conn.close()
+    return log_id, new_points
+
+def undo_last_action(guild_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    conn.close()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM point_logs WHERE guild_id = ? AND undone = 0 ORDER BY id DESC LIMIT 1", (guild_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    cur.execute("UPDATE house_scores SET points = points - ? WHERE guild_id = ? AND house = ?", (row["amount"], guild_id, row["house"]))
+    cur.execute("UPDATE point_logs SET undone = 1 WHERE id = ?", (row["id"],))
+    conn.commit()
+    conn.close()
+    return row
+
+def get_scores(guild_id: int):
+    ensure_guild(guild_id)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT house, points FROM house_scores WHERE guild_id = ? ORDER BY points DESC", (guild_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def create_cup_embed(guild: discord.Guild):
+    rows = get_scores(guild.id)
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
+    embed = discord.Embed(
+        title="🏆 كأس المنازل",
+        description="━━━━━━━━━━━━━━━━━━━━\n✨ **ترتيب المنازل الحالي**\n━━━━━━━━━━━━━━━━━━━━",
+        color=0xD4AF37
+    )
+    for index, row in enumerate(rows):
+        house, points = row["house"], row["points"]
+        emoji = HOUSE_ROLES[house]
+        medal = medals[index] if index < len(medals) else f"{index + 1}️⃣"
+        embed.add_field(name=f"{medal} {emoji} {house}", value=f"⭐ **{points:,} نقطة**", inline=False)
+    embed.set_footer(text=AUTHOR_SIGNATURE)
+    return embed
+
+
+# =========================================================
+# أدوات قاعدة البيانات (JSON)
 # =========================================================
 
 def load_json_file(filename):
@@ -1703,9 +1872,6 @@ async def show_hufflepuff(ctx):
 # الفعاليات السحرية
 # =========================================================
 
-EVENTS_FILE = "magic_events.json"
-
-
 class MagicEventModal(
     discord.ui.Modal,
     title="✨ إنشاء فعالية سحرية"
@@ -1936,6 +2102,136 @@ async def delete_magic_event(
 
 
 # =========================================================
+# واجهات وأوامر كأس المنازل التفاعلية (Modals & Views)
+# =========================================================
+
+class AddPointsModal(discord.ui.Modal, title="➕ إضافة نقاط للمنازل"):
+    member = discord.ui.TextInput(label="ID العضو — اختياري", required=False, max_length=25)
+    house = discord.ui.TextInput(label="المنزل — اختياري", placeholder="جريفندور / هافلباف / رافنكلو / سليذرين", required=False, max_length=30)
+    points = discord.ui.TextInput(label="عدد النقاط", placeholder="مثال: 25", required=True, max_length=10)
+    reason = discord.ui.TextInput(label="سبب النقاط", placeholder="الفوز في المسابقة", required=True, style=discord.TextStyle.paragraph, max_length=300)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = int(self.points.value.strip())
+            if amount <= 0: raise ValueError
+        except:
+            return await interaction.response.send_message("❌ عدد النقاط يجب أن يكون رقمًا أكبر من صفر.", ephemeral=True)
+
+        selected_house = normalize_house(self.house.value)
+        if self.house.value.strip() and not selected_house:
+            return await interaction.response.send_message("❌ اسم المنزل غير صحيح.", ephemeral=True)
+
+        member_obj = None
+        if self.member.value.strip():
+            try:
+                user_id = int(self.member.value.strip())
+                member_obj = await interaction.guild.fetch_member(user_id)
+                detected_house, error = resolve_member_house(member_obj)
+                if error: return await interaction.response.send_message(f"⚠️ {error}", ephemeral=True)
+                if detected_house:
+                    if selected_house and selected_house != detected_house:
+                        return await interaction.response.send_message("❌ تعارض بين المنزل المختار ومنزل العضو.", ephemeral=True)
+                    selected_house = detected_house
+            except:
+                return await interaction.response.send_message("❌ خطأ في ID العضو.", ephemeral=True)
+
+        if not selected_house:
+            return await interaction.response.send_message("❌ يجب تحديد المنزل أو عضو مسجل بمنزل.", ephemeral=True)
+
+        log_id, new_score = add_points(interaction.guild.id, selected_house, amount, member_obj.id if member_obj else None, interaction.user.id, self.reason.value.strip())
+        
+        embed = discord.Embed(title="✨ تم تسجيل النقاط", color=0x57F287)
+        embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
+        embed.add_field(name="⭐ النقاط", value=f"**+{amount:,}**", inline=True)
+        embed.add_field(name="🏆 رصيد المنزل", value=f"**{new_score:,} نقطة**", inline=False)
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class RemovePointsModal(discord.ui.Modal, title="➖ خصم نقاط من المنازل"):
+    member = discord.ui.TextInput(label="ID العضو — اختياري", required=False, max_length=25)
+    house = discord.ui.TextInput(label="المنزل — اختياري", placeholder="جريفندور / هافلباف...", required=False, max_length=30)
+    points = discord.ui.TextInput(label="عدد النقاط", placeholder="مثال: 10", required=True, max_length=10)
+    reason = discord.ui.TextInput(label="سبب الخصم", placeholder="مخالفة القوانين", required=True, style=discord.TextStyle.paragraph, max_length=300)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = int(self.points.value.strip())
+            if amount <= 0: raise ValueError
+        except:
+            return await interaction.response.send_message("❌ عدد النقاط غير صحيح.", ephemeral=True)
+
+        selected_house = normalize_house(self.house.value)
+        member_obj = None
+        if self.member.value.strip():
+            try:
+                user_id = int(self.member.value.strip())
+                member_obj = await interaction.guild.fetch_member(user_id)
+                detected_house, _ = resolve_member_house(member_obj)
+                if detected_house: selected_house = detected_house
+            except: pass
+
+        if not selected_house:
+            return await interaction.response.send_message("❌ يجب تحديد المنزل.", ephemeral=True)
+
+        log_id, new_score = add_points(interaction.guild.id, selected_house, -amount, member_obj.id if member_obj else None, interaction.user.id, self.reason.value.strip())
+        
+        embed = discord.Embed(title="⚠️ تم خصم النقاط", color=0xED4245)
+        embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
+        embed.add_field(name="⭐ النقاط", value=f"**-{amount:,}**", inline=True)
+        embed.add_field(name="🏆 الرصيد الحالي", value=f"**{new_score:,} نقطة**", inline=False)
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class CupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="إضافة نقاط", emoji="➕", style=discord.ButtonStyle.success, custom_id="house_cup:add")
+    async def add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not can_manage_cup(interaction.user):
+            return await interaction.response.send_message("❌ ليس لديك صلاحية إدارة الكأس.", ephemeral=True)
+        await interaction.response.send_modal(AddPointsModal())
+
+    @discord.ui.button(label="خصم نقاط", emoji="➖", style=discord.ButtonStyle.danger, custom_id="house_cup:remove")
+    async def remove_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not can_manage_cup(interaction.user):
+            return await interaction.response.send_message("❌ ليس لديك صلاحية إدارة الكأس.", ephemeral=True)
+        await interaction.response.send_modal(RemovePointsModal())
+
+    @discord.ui.button(label="الترتيب", emoji="📊", style=discord.ButtonStyle.primary, custom_id="house_cup:ranking")
+    async def ranking_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=create_cup_embed(interaction.guild), view=CupView())
+
+    @discord.ui.button(label="تحديث", emoji="🔄", style=discord.ButtonStyle.secondary, custom_id="house_cup:refresh")
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=create_cup_embed(interaction.guild), view=CupView())
+
+
+@bot.tree.command(name="الكأس", description="عرض لوحة كأس المنازل التفاعلية")
+async def cup_command(interaction: discord.Interaction):
+    ensure_guild(interaction.guild.id)
+    await interaction.response.send_message(embed=create_cup_embed(interaction.guild), view=CupView())
+
+
+@bot.tree.command(name="تراجع", description="التراجع عن آخر عملية نقاط تمت على المنازل")
+async def undo_command(interaction: discord.Interaction):
+    if not can_manage_cup(interaction.user):
+        return await interaction.response.send_message("❌ ليس لديك صلاحية.", ephemeral=True)
+    row = undo_last_action(interaction.guild.id)
+    if not row:
+        return await interaction.response.send_message("❌ لا توجد عملية قابلة للتراجع.", ephemeral=True)
+    
+    embed = discord.Embed(title="↩️ تم التراجع عن العملية", color=0xFAA61A)
+    embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[row['house']]} {row['house']}", inline=True)
+    embed.add_field(name="⭐ العملية", value=f"{row['amount']:,} نقطة", inline=True)
+    embed.set_footer(text=AUTHOR_SIGNATURE)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# =========================================================
 # الغارة المجدولة
 # =========================================================
 
@@ -1981,11 +2277,25 @@ async def before_scheduled_attack():
 
 @bot.event
 async def on_ready():
+    init_db()  # تهيئة قاعدة بيانات كأس المنازل
+    bot.add_view(CupView())  # تسجيل أزرار الكأس لتعمل باستمرار
+    bot.add_view(VillageDefenseView())
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"🪄 تمت مزامنة {len(synced)} أمر Slash بنجاح.")
+    except Exception as e:
+        print(f"❌ خطأ في مزامنة الأوامر: {e}")
 
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"🪄 البوت متصل: {bot.user}")
     print(f"🆔 ID: {bot.user.id}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    ensure_guild(guild.id)
 
 
 @bot.event
@@ -2098,4 +2408,3 @@ if __name__ == "__main__":
             print(
                 f"❌ خطأ قاتل أثناء تشغيل البوت: {e}"
             )
-
