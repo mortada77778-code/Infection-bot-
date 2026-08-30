@@ -249,7 +249,7 @@ def make_embed(title, description="", color=None):
 
 
 # =========================================================
-# البيوت وقبعة التنسيق (4 أسئلة منظمة ومحدثة)
+# البيوت وقبعة التنسيق الآمنة والمحدثة
 # =========================================================
 
 HOUSES = {
@@ -266,6 +266,7 @@ class SortingHatQuizView(discord.ui.View):
         self.guild_id = guild_id
         self.scores = {"جريفندور": 0, "سليذيرين": 0, "رافينكلو": 0, "هافلباف": 0}
         self.current_question = 0
+        self.is_finished = False
         self.questions = [
             {
                 "q": "السؤال الأول: ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟",
@@ -322,6 +323,10 @@ class QuizOptionButton(discord.ui.Button):
         if interaction.user.id != view.user.id:
             return await interaction.response.send_message("❌ هذه ليست قبعتك!", ephemeral=True)
 
+        if view.is_finished:
+            return
+
+        # تسجيل الاختيار الحالي للسؤال المعروض
         view.scores[self.house] += 1
         view.current_question += 1
 
@@ -331,9 +336,11 @@ class QuizOptionButton(discord.ui.Button):
             embed = make_embed("🎩 اختبار قبعة التنسيق", f"**{q_data['q']}**", 0x8B5A2B)
             await interaction.response.edit_message(embed=embed, view=view)
         else:
+            view.is_finished = True
             winning_house = max(view.scores, key=view.scores.get)
             assign_student_house(view.user.id, view.user.name, winning_house, view.guild_id)
             info = HOUSES[winning_house]
+            
             final_embed = make_embed(
                 "✨ القرار النهائي لقبعة التنسيق",
                 f"🧙 **الساحر:** {view.user.mention}\n\n{info['emoji']} **البيت:**\n## {info['name']}\n\n*{info['desc']}*\n\n📜 تم تسجيل اسمك رسمياً في سجلات البيت.",
@@ -349,9 +356,21 @@ async def sorting_hat(ctx):
     if student_already_sorted(ctx.guild.id, ctx.author.id):
         return await ctx.send(embed=make_embed("⚠️ عذراً", "لقد تم اختيار منزلك مسبقاً!", COLORS["danger"]), delete_after=10)
 
-    first_q = "*تستقر القبعة على رأسك وتهمس بأسئلتها الأربعة...*\n\n**السؤال الأول: ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟**"
-    embed = make_embed("🎩 قبعة التنسيق", first_q, 0x8B5A2B)
+    # بدء الاختبار بعرض السؤال الأول مباشرة مع الأزرار الخاصة به
+    first_q_data = [
+        ("الشجاعة والبسالة في وجه الأخطار", "جريفندور"),
+        ("المجد والطموح وتحقيق الأهداف الكبرى", "سليذيرين"),
+        ("الحكمة والمعرفة واكتشاف أسرار الكون", "رافينكلو"),
+        ("العدالة واللطف ومساعدة الأصدقاء", "هافلباف")
+    ]
+    
     view = SortingHatQuizView(ctx.author, ctx.guild.id)
+    # تعيين أزرار السؤال الأول يدوياً لمنع أي تداخل
+    view.clear_items()
+    for text, house in first_q_data:
+        view.add_item(QuizOptionButton(text, house))
+
+    embed = make_embed("🎩 قبعة التنسيق", f"*تستقر القبعة على رأسك وتهمس بأسئلتها الأربعة...*\n\n**السؤال الأول: ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟**", 0x8B5A2B)
     msg = await ctx.send(embed=embed, view=view)
     view.message = msg
 
