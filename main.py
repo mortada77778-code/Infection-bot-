@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 import random
 import os
@@ -249,7 +249,7 @@ def make_embed(title, description="", color=None):
 
 
 # =========================================================
-# البيوت وقبعة التنسيق (4 أسئلة)
+# البيوت وقبعة التنسيق (4 أسئلة منظمة ومحدثة)
 # =========================================================
 
 HOUSES = {
@@ -312,11 +312,6 @@ class SortingHatQuizView(discord.ui.View):
             for text, house in self.questions[self.current_question]["options"]:
                 self.add_item(QuizOptionButton(text, house))
 
-    async def on_timeout(self):
-        for child in self.children: child.disabled = True
-        try: await self.message.edit(content="⏳ انتهى وقت التنسيق.", view=None)
-        except: pass
-
 class QuizOptionButton(discord.ui.Button):
     def __init__(self, label, house):
         super().__init__(label=label, style=discord.ButtonStyle.secondary)
@@ -341,11 +336,13 @@ class QuizOptionButton(discord.ui.Button):
             info = HOUSES[winning_house]
             final_embed = make_embed(
                 "✨ القرار النهائي لقبعة التنسيق",
-                f"🧙 **الساحر:** {view.user.mention}\n\n{info['emoji']} **البيت:**\n## {info['name']}\n\n*{info['desc']}*",
+                f"🧙 **الساحر:** {view.user.mention}\n\n{info['emoji']} **البيت:**\n## {info['name']}\n\n*{info['desc']}*\n\n📜 تم تسجيل اسمك رسمياً في سجلات البيت.",
                 info["color"]
             )
-            for child in view.children: child.disabled = True
+            for child in view.children: 
+                child.disabled = True
             await interaction.response.edit_message(embed=final_embed, view=None)
+            view.stop()
 
 @bot.command(name="قبعة-التنسيق")
 async def sorting_hat(ctx):
@@ -360,13 +357,13 @@ async def sorting_hat(ctx):
 
 
 # =========================================================
-# استمارة إضافة النقاط للطالب (Modal)
+# استمارة إضافة النقاط للطالب عبر (ID)
 # =========================================================
 
 class AddPointsModal(discord.ui.Modal, title="✨ استمارة إضافة نقاط السحر"):
     student_input = discord.ui.TextInput(
-        label="منشن الساحر أو الآي دي (ID)",
-        placeholder="مثال: @سيدريك أو 123456789",
+        label="آي دي (ID) الساحر",
+        placeholder="انسخ والصق الآي دي هنا مثل: 84920391820",
         style=discord.TextStyle.short,
         required=True
     )
@@ -390,7 +387,7 @@ class AddPointsModal(discord.ui.Modal, title="✨ استمارة إضافة نق
 
         target_member = None
         if interaction.guild:
-            cleaned_id = student_text.replace("<@", "").replace(">", "").replace("!", "")
+            cleaned_id = "".join(filter(str.isdigit, student_text))
             if cleaned_id.isdigit():
                 target_member = interaction.guild.get_member(int(cleaned_id))
                 if not target_member:
@@ -400,7 +397,7 @@ class AddPointsModal(discord.ui.Modal, title="✨ استمارة إضافة نق
                         pass
 
         if not target_member:
-            return await interaction.response.send_message("❌ لم أتمكن من العثور على هذا الساحر! تأكد من المنشن.", ephemeral=True)
+            return await interaction.response.send_message("❌ لم أتمكن من العثور على الساحر! تأكد من استخدام Copy User ID.", ephemeral=True)
 
         try:
             points = int(points_text)
@@ -436,6 +433,128 @@ async def slash_add_points_form(interaction: discord.Interaction):
     if not can_manage_cup(interaction.user):
         return await interaction.response.send_message("❌ ليس لديك صلاحية لإدارة كأس المنازل.", ephemeral=True)
     await interaction.response.send_modal(AddPointsModal())
+
+
+# =========================================================
+# استمارة نقاط البيت المباشرة (/نقاط_البيت)
+# =========================================================
+
+class HousePointsModal(discord.ui.Modal, title="✨ نقاط البيت المباشرة"):
+    house_input = discord.ui.TextInput(
+        label="اسم المنزل",
+        placeholder="جريفندور، سليذرين، رافنكلو، هافلباف",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    points_input = discord.ui.TextInput(
+        label="عدد النقاط",
+        placeholder="اكتب رقماً صحيحاً مثل: 50",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    operation_input = discord.ui.TextInput(
+        label="نوع العملية (إضافة أو خصم)",
+        placeholder="اكتب: إضافة  أو  خصم",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    reason_input = discord.ui.TextInput(
+        label="السبب",
+        placeholder="مثال: الفوز بمسابقة Quidditch الكبرى",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        house_text = self.house_input.value.strip()
+        points_text = self.points_input.value.strip()
+        op_text = self.operation_input.value.strip().lower()
+        reason = self.reason_input.value.strip()
+
+        selected_house = normalize_house(house_text)
+        if not selected_house:
+            return await interaction.response.send_message("❌ اسم المنزل غير صحيح! تأكد من كتابته (جريفندور، سليذرين، رافنكلو، هافلباف).", ephemeral=True)
+
+        try:
+            points = int(points_text)
+            if points <= 0: raise ValueError()
+        except ValueError:
+            return await interaction.response.send_message("❌ عدد النقاط يجب أن يكون رقماً صحيحاً أكبر من الصفر.", ephemeral=True)
+
+        if "خصم" in op_text or "ناقص" in op_text or "-" in op_text:
+            final_points = -points
+            embed_title = "⚠️ تم خصم النقاط من البيت"
+            embed_color = 0xED4245
+        else:
+            final_points = points
+            embed_title = "✨ تم إضافة النقاط للبيت بنجاح"
+            embed_color = 0x57F287
+
+        log_id, new_score = add_points(interaction.guild.id, selected_house, final_points, None, interaction.user.id, reason)
+        emoji = HOUSE_ROLES[selected_house]
+
+        embed = discord.Embed(title=embed_title, color=embed_color)
+        embed.add_field(name="🏠 المنزل المستهدف", value=f"{emoji} **{selected_house}**", inline=True)
+        embed.add_field(name="⭐ النقاط", value=f"**{final_points:+,}**", inline=True)
+        embed.add_field(name="📝 السبب", value=reason, inline=False)
+        embed.add_field(name="🏆 رصيد المنزل الحالي", value=f"**{new_score:,} نقطة**", inline=False)
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="نقاط_البيت", description="إضافة أو خصم نقاط للبيت مباشرة سراً")
+async def slash_house_points(interaction: discord.Interaction):
+    if not can_manage_cup(interaction.user):
+        return await interaction.response.send_message("❌ ليس لديك صلاحية لإدارة كأس المنازل.", ephemeral=True)
+    await interaction.response.send_modal(HousePointsModal())
+
+
+# =========================================================
+# أمر لوحة شرف وترتيب الطلاب (/ترتيب_الطلاب)
+# =========================================================
+
+@bot.tree.command(name="ترتيب_الطلاب", description="عرض لوحة شرف السحرة الأعلى نقاطاً في السيرفر")
+async def slash_students_leaderboard(interaction: discord.Interaction):
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT user_id, house, SUM(amount) as total_points
+        FROM point_logs
+        WHERE guild_id = ? AND user_id IS NOT NULL AND undone = 0 AND amount > 0
+        GROUP BY user_id
+        ORDER BY total_points DESC
+        LIMIT 10
+    """, (interaction.guild.id,))
+    
+    rows = cur.fetchall()
+    conn.close()
+
+    embed = discord.Embed(
+        title="🌟 لوحة شرف السحرة الأبطال",
+        description="━━━━━━━━━━━━━━━━━━━━\n✨ **أعلى الطلاب جمعاً للنقاط**\n━━━━━━━━━━━━━━━━━━━━",
+        color=0xD4AF37
+    )
+    
+    if not rows:
+        embed.description = "❌ لا توجد أي نقاط مسجلة بأسماء طلاب حتى الآن."
+    else:
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for index, row in enumerate(rows):
+            user_id = row["user_id"]
+            house = row["house"]
+            points = row["total_points"]
+            emoji = HOUSE_ROLES.get(house, "✨")
+            medal = medals[index] if index < len(medals) else f"{index + 1}️⃣"
+            
+            embed.add_field(
+                name=f"{medal} الساحر: <@{user_id}>",
+                value=f"🏠 المنزل: {emoji} **{house}** | ⭐ **{points:,} نقطة**",
+                inline=False
+            )
+
+    embed.set_footer(text=AUTHOR_SIGNATURE)
+    await interaction.response.send_message(embed=embed)
 
 
 # =========================================================
