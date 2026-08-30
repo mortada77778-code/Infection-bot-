@@ -234,9 +234,6 @@ COLORS = {
     "success": 0x1E5631, "blue": 0x162A4A, "dark": 0x15121C, "silver": 0x777777
 }
 
-def footer_text(extra=None):
-    return f"{extra} • {AUTHOR_SIGNATURE}" if extra else AUTHOR_SIGNATURE
-
 def make_embed(title, description="", color=None):
     embed = discord.Embed(title=title, description=description, color=color or COLORS["magic"], timestamp=datetime.utcnow())
     embed.set_footer(text=AUTHOR_SIGNATURE)
@@ -269,18 +266,9 @@ HOUSES = {
     "هافلباف": {"name": "هافلباف (Hufflepuff)", "emoji": "🦡", "color": 0xECB939, "desc": "الإخلاص والعدالة والعمل الجاد."}
 }
 
-async def display_house_students(ctx, house_key):
-    db = load_json_file(STUDENTS_FILE)
-    info = HOUSES[house_key]
-    members = [f"• <@{uid}> — **{data.get('name', 'ساحر')}**" for uid, data in db.items() if data.get("house") == house_key]
-    desc = f"╔════════════════════╗\n   {info['emoji']} **سجل أبناء البيت**\n╚════════════════════╝\n\n" + ("\n".join(members) if members else f"لا يوجد أي ساحر مسجل في {info['name']}.")
-    embed = make_embed(f"🏰 سجل بيت {info['name']}", desc, info["color"])
-    embed.add_field(name="📜 صفات البيت", value=info["desc"], inline=False)
-    await ctx.send(embed=embed)
-
 
 # =========================================================
-# قبعة التنسيق التفاعلية (بالأسئلة)
+# قبعة التنسيق التفاعلية (4 أسئلة)
 # =========================================================
 
 class SortingHatQuizView(discord.ui.View):
@@ -292,7 +280,7 @@ class SortingHatQuizView(discord.ui.View):
         self.current_question = 0
         self.questions = [
             {
-                "q": "ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟",
+                "q": "السؤال الأول: ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟",
                 "options": [
                     ("الشجاعة والبسالة في وجه الأخطار", "جريفندور"),
                     ("المجد والطموح وتحقيق الأهداف الكبرى", "سليذيرين"),
@@ -301,12 +289,30 @@ class SortingHatQuizView(discord.ui.View):
                 ]
             },
             {
-                "q": "أمامك باب مغلق ومجهول، ماذا تفعل؟",
+                "q": "السؤال الثاني: أمامك باب مغلق ومجهول، ماذا تفعل؟",
                 "options": [
                     ("أقوم فتحه بقوة ودون تردد لأسبر غوره", "جريفندور"),
                     ("أدرس الطريقة الذكية لاستغلاله لمصلحتي", "سليذيرين"),
                     ("أبحث عن اللغز المفتاحي وأحل رموزه أولاً", "رافينكلو"),
                     ("أتأكد من أنه لا يضر أحداً قبل أن أقترب منه", "هافلباف")
+                ]
+            },
+            {
+                "q": "السؤال الثالث: ما هي الصفة التي تكرهها أكثر في الآخرين؟",
+                "options": [
+                    ("الجبن والتراجع عند الشدائد", "جريفندور"),
+                    ("الكسل وفقدان الطموح والرضا بالقاع", "سليذيرين"),
+                    ("الجهل وسطحية التفكير", "رافينكلو"),
+                    ("الظلم والأنانية وقسوة القلوب", "هافلباف")
+                ]
+            },
+            {
+                "q": "السؤال الرابع: في وقت الفراغ، ما هو المكان الذي تفضل قضاء وقتك فيه؟",
+                "options": [
+                    ("ميدان التحدي والمغامرات الخارجية", "جريفندور"),
+                    ("التخطيط لمشاريعي المستقبلية والانفراد بالتميز", "سليذيرين"),
+                    ("المكتبة الكبرى بين الكتب القديمة والأسرار", "رافينكلو"),
+                    ("الحدائق الهادئة ومشاركة الأصدقاء الجلسات", "هافلباف")
                 ]
             }
         ]
@@ -339,7 +345,7 @@ class QuizOptionButton(discord.ui.Button):
         if view.current_question < len(view.questions):
             view.update_buttons()
             q_data = view.questions[view.current_question]
-            embed = make_embed("🎩 اختبار قبعة التنسيق", f"**السؤال {view.current_question + 1}:**\n{q_data['q']}", 0x8B5A2B)
+            embed = make_embed("🎩 اختبار قبعة التنسيق", f"**{q_data['q']}**", 0x8B5A2B)
             await interaction.response.edit_message(embed=embed, view=view)
         else:
             winning_house = max(view.scores, key=view.scores.get)
@@ -358,16 +364,8 @@ async def sorting_hat(ctx):
     if student_already_sorted(ctx.guild.id, ctx.author.id):
         return await ctx.send(embed=make_embed("⚠️ عذراً", "لقد تم اختيار منزلك مسبقاً!", COLORS["danger"]), delete_after=10)
 
-    q_data = {
-        "q": "ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟",
-        "options": [
-            ("الشجاعة والبسالة في وجه الأخطار", "جريفندور"),
-            ("المجد والطموح وتحقيق الأهداف الكبرى", "سليذيرين"),
-            ("الحكمة والمعرفة واكتشاف أسرار الكون", "رافينكلو"),
-            ("العدالة واللطف ومساعدة الأصدقاء", "هافلباف")
-        ]
-    }
-    embed = make_embed("🎩 قبعة التنسيق", f"*تستقر القبعة على رأسك...*\n\n**السؤال الأول:**\n{q_data['q']}", 0x8B5A2B)
+    first_q = "*تستقر القبعة على رأسك وتهمس بأسئلتها الأربعة...*\n\n**السؤال الأول: ما هو الشيء الذي تفضل أن يُذكر به اسمك بعد رحيلك؟**"
+    embed = make_embed("🎩 قبعة التنسيق", first_q, 0x8B5A2B)
     view = SortingHatQuizView(ctx.author, ctx.guild.id)
     msg = await ctx.send(embed=embed, view=view)
     view.message = msg
@@ -442,43 +440,57 @@ async def cure_hospital_patient(ctx, member: discord.Member = None):
 
 
 # =========================================================
-# أوامر كأس المنازل النصية (!)
+# نظام النقاط التفاعلي (خطوة بخطوة)
 # =========================================================
+
+@bot.command(name="إضافة-نقاط")
+async def add_points_interactive(ctx):
+    if not can_manage_cup(ctx.author): 
+        return await ctx.send("❌ ليس لديك صلاحية لإدارة كأس المنازل.", delete_after=10)
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        await ctx.send("🏰 **[1/3]** أكتب اسم المنزل المراد إضافة النقاط إليه (جريفندور، سليذرين، رافنكلو، هافلباف):")
+        msg_house = await bot.wait_for('message', timeout=30.0, check=check)
+        selected_house = normalize_house(msg_house.content.strip())
+        
+        if not selected_house:
+            return await ctx.send("❌ اسم المنزل غير صحيح. تم إلغاء العملية.", delete_after=10)
+
+        await ctx.send(f"⭐ **[2/3]** كم عدد النقاط المراد إضافتها لـ **{selected_house}**؟ (اكتب رقماً):")
+        msg_points = await bot.wait_for('message', timeout=30.0, check=check)
+        
+        try:
+            points = int(msg_points.content.strip())
+            if points <= 0: raise ValueError()
+        except ValueError:
+            return await ctx.send("❌ يجب إدخال رقم صحيح أكبر من الصفر. تم إلغاء العملية.", delete_after=10)
+
+        await ctx.send(f"📝 **[3/3]** ما هو سبب إضافة النقاط لـ **{selected_house}**؟:")
+        msg_reason = await bot.wait_for('message', timeout=45.0, check=check)
+        reason = msg_reason.content.strip()
+
+        log_id, new_score = add_points(ctx.guild.id, selected_house, points, None, ctx.author.id, reason)
+
+        embed = discord.Embed(title="✨ تم تسجيل النقاط بنجاح", color=0x57F287)
+        embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
+        embed.add_field(name="⭐ النقاط المضافة", value=f"**+{points:,}**", inline=True)
+        embed.add_field(name="📝 السبب", value=reason, inline=False)
+        embed.add_field(name="🏆 رصيد المنزل الجديد", value=f"**{new_score:,} نقطة**", inline=False)
+        embed.set_footer(text=AUTHOR_SIGNATURE)
+        
+        await ctx.send(embed=embed)
+
+    except asyncio.TimeoutError:
+        await ctx.send("⏳ انتهى الوقت المخصص ولم تقم بالرد. تم إلغاء العملية.", delete_after=10)
+
 
 @bot.command(name="الكأس")
 async def cup_command(ctx):
     ensure_guild(ctx.guild.id)
     await ctx.send(embed=create_cup_embed(ctx.guild))
-
-@bot.command(name="إضافة-نقاط")
-async def add_points_cmd(ctx, house_name: str, points: int, *, reason: str):
-    if not can_manage_cup(ctx.author): return await ctx.send("❌ ليس لديك صلاحية.", delete_after=10)
-    selected_house = normalize_house(house_name)
-    if not selected_house: return await ctx.send("❌ اسم المنزل غير صحيح.", delete_after=10)
-    if points <= 0: return await ctx.send("❌ النقاط يجب أن تكون أكبر من صفر.", delete_after=10)
-
-    log_id, new_score = add_points(ctx.guild.id, selected_house, points, None, ctx.author.id, reason)
-    embed = discord.Embed(title="✨ تم تسجيل النقاط", color=0x57F287)
-    embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
-    embed.add_field(name="⭐ النقاط", value=f"**+{points:,}**", inline=True)
-    embed.add_field(name="🏆 رصيد المنزل", value=f"**{new_score:,} نقطة**", inline=False)
-    embed.set_footer(text=AUTHOR_SIGNATURE)
-    await ctx.send(embed=embed)
-
-@bot.command(name="خصم-نقاط")
-async def remove_points_cmd(ctx, house_name: str, points: int, *, reason: str):
-    if not can_manage_cup(ctx.author): return await ctx.send("❌ ليس لديك صلاحية.", delete_after=10)
-    selected_house = normalize_house(house_name)
-    if not selected_house: return await ctx.send("❌ اسم المنزل غير صحيح.", delete_after=10)
-    if points <= 0: return await ctx.send("❌ النقاط يجب أن تكون أكبر من صفر.", delete_after=10)
-
-    log_id, new_score = add_points(ctx.guild.id, selected_house, -points, None, ctx.author.id, reason)
-    embed = discord.Embed(title="⚠️ تم خصم النقاط", color=0xED4245)
-    embed.add_field(name="🏠 المنزل", value=f"{HOUSE_ROLES[selected_house]} **{selected_house}**", inline=True)
-    embed.add_field(name="⭐ النقاط", value=f"**-{points:,}**", inline=True)
-    embed.add_field(name="🏆 الرصيد الحالي", value=f"**{new_score:,} نقطة**", inline=False)
-    embed.set_footer(text=AUTHOR_SIGNATURE)
-    await ctx.send(embed=embed)
 
 @bot.command(name="تراجع")
 async def undo_cmd(ctx):
