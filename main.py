@@ -791,23 +791,36 @@ async def slash_add_event(interaction: discord.Interaction):
     await interaction.response.send_modal(AddEventModal())
 
 class EventsPaginationView(discord.ui.View):
-    def __init__(self, events_list, author_id):
-        super().__init__(timeout=120)
-        self.events_list = events_list
-        self.author_id = author_id
+    def __init__(self, events_data):
+        super().__init__(timeout=180)
+        self.events_data = events_data
         self.current_page = 0
-        self.per_page = 5
-        self.max_pages = max(1, (len(events_list) + self.per_page - 1) // self.per_page)
         self.update_buttons()
 
     def update_buttons(self):
-        self.prev_button.disabled = (self.current_page == 0)
-        self.next_button.disabled = (self.current_page >= self.max_pages - 1)
+        # تفعيل أو تعطيل الأزرار حسب الصفحة الحالية
+        pass
 
-    def create_embed(self):
-        embed = make_embed(
-            "📜 سجل الفعاليات السحرية",
-            f"━━━━━━━━━━━━━━━━━━━━\n✨ **الصفحة {self.current_page + 1} من {self.max_pages}**\n━━━━━━━━━━━━━━━━━━━━",
+    @discord.ui.button(label="◀️ السابق", style=discord.ButtonStyle.secondary)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        else:
+            await interaction.response.send_message("أنت في الصفحة الأولى بالفعل.", ephemeral=True)
+
+    @discord.ui.button(label="التالي ▶️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < len(self.events_data) - 1:
+            self.current_page += 1
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        else:
+            await interaction.response.send_message("أنت في الصفحة الأخيرة بالفعل.", ephemeral=True)
+
+    def get_current_embed(self):
+        # دالة ترجع الـ Embed الخاص بالصفحة الحالية
+        return make_embed("سجل الفعاليات", f"صفحة رقم {self.current_page + 1}")
+
             COLORS["blue"]
         )
         if not self.events_list:
