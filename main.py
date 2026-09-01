@@ -604,7 +604,8 @@ class DuelView(discord.ui.View):
         self.add_item(DuelSpellSelect(duel_session, duel_session.p1.id))
         self.add_item(DuelSpellSelect(duel_session, duel_session.p2.id))
 
-class DuelSession:
+
+        class DuelSession:
     def __init__(self, p1, p2, guild_id):
         self.p1 = p1
         self.p2 = p2
@@ -622,8 +623,9 @@ class DuelSession:
         s1 = SPELLS[self.p1_choice]
         s2 = SPELLS[self.p2_choice]
 
-        self.p1_mana = min(MAX_MP, self.p1_mana - s1["cost"] + 20)
-        self.p2_mana = min(MAX_MP, self.p2_mana - s2["cost"] + 20)
+        # خصم التكلفة وإضافة 20 نقطة مانا ثابتة مع التأكد من عدم تجاوز الحد الأقصى 100
+        self.p1_mana = min(MAX_MP, max(0, self.p1_mana - s1["cost"]) + 20)
+        self.p2_mana = min(MAX_MP, max(0, self.p2_mana - s2["cost"]) + 20)
 
         p1_net_damage = max(0, s1["damage"] - s2["heal"])
         p2_net_damage = max(0, s2["damage"] - s1["heal"])
@@ -680,6 +682,7 @@ class DuelSession:
         cur.execute("UPDATE duel_stats SET losses = losses + 1 WHERE guild_id = ? AND user_id = ?", (self.guild_id, loser_id))
         conn.commit()
         conn.close()
+
 
 @bot.tree.command(name="مبارزة", description="تحدي ساحر آخر في مبارزة سحرية")
 @app_commands.describe(opponent="الساحر الخصم الذي تريد مبارزته")
