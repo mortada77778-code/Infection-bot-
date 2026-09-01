@@ -4,7 +4,7 @@ import random
 import os
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiohttp import web
 
@@ -154,10 +154,6 @@ dashboard_app = web.Application()
 
 async def dashboard_data(request):
 
-    # -----------------------------------------------------
-    # حماية الـ Endpoint
-    # -----------------------------------------------------
-
     if not DASHBOARD_API_KEY:
 
         return web.json_response(
@@ -185,10 +181,6 @@ async def dashboard_data(request):
         )
 
 
-    # -----------------------------------------------------
-    # قراءة الملفات
-    # -----------------------------------------------------
-
     students = load_json_file(
         STUDENTS_FILE
     )
@@ -201,10 +193,6 @@ async def dashboard_data(request):
         EVENTS_FILE
     )
 
-
-    # -----------------------------------------------------
-    # إحصائيات سريعة للداشبورد
-    # -----------------------------------------------------
 
     total_students = len(
         students
@@ -241,10 +229,6 @@ async def dashboard_data(request):
     )
 
 
-    # -----------------------------------------------------
-    # توزيع الطلاب على البيوت
-    # -----------------------------------------------------
-
     house_counts = {
         "جريفندور": 0,
         "سليذيرين": 0,
@@ -264,15 +248,11 @@ async def dashboard_data(request):
             house_counts[house] += 1
 
 
-    # -----------------------------------------------------
-    # استجابة واحدة لكل البيانات
-    # -----------------------------------------------------
-
     response = {
 
         "success": True,
 
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
 
         "bot": {
 
@@ -329,19 +309,11 @@ async def dashboard_data(request):
     )
 
 
-# =========================================================
-# Endpoint واحد فقط
-# =========================================================
-
 dashboard_app.router.add_get(
     "/api/dashboard",
     dashboard_data
 )
 
-
-# =========================================================
-# تشغيل Web Server
-# =========================================================
 
 dashboard_runner = None
 
@@ -456,8 +428,8 @@ def make_embed(
 
         color=color or COLORS["magic"],
 
-        timestamp = datetime.now(timezone.utc)
-
+        timestamp=datetime.now(timezone.utc)
+    )
 
     embed.set_footer(
         text=AUTHOR_SIGNATURE
@@ -997,7 +969,7 @@ class AttackButton(
                 "\n🏥 **إصابة ميدانية:**\n"
 
                 f"أصيب **{victim_name}** "
-                "ونُقل إلى المستشفى الحربي.\n"
+                "ونُقل إلى المستشفى الحربي.\n\n"
 
                 "يمكن علاجه باستخدام "
                 "`!علاج @الساحر`."
@@ -1903,22 +1875,20 @@ class DuelSession:
     ):
 
         description = (
-    f"## ✦ الجولة {self.round_num:02d} ✦\n\n"
+            f"## ✦ الجولة {self.round_num:02d} ✦\n\n"
 
-    f"### 🧙 {self.p1.display_name}\n"
-    f"{player_status(self.p1.display_name, self.p1_data)}\n\n"
+            f"### 🧙 {self.p1.display_name}\n"
+            f"{player_status(self.p1.display_name, self.p1_data)}\n\n"
 
-    f"## ⚔️ VS ⚔️\n\n"
+            f"## ⚔️ VS ⚔️\n\n"
 
-    f"### 🧙 {self.p2.display_name}\n"
-    f"{player_status(self.p2.display_name, self.p2_data)}\n\n"
+            f"### 🧙 {self.p2.display_name}\n"
+            f"{player_status(self.p2.display_name, self.p2_data)}\n\n"
 
-    "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    f"✨ **حالة الجولة**\n{status_text}"
-)
-
-
+            f"✨ **حالة الجولة**\n{status_text}"
+        )
 
         return make_embed(
 
@@ -2062,10 +2032,6 @@ class DuelSession:
 
             flavor_picks = []
 
-
-            # -------------------------------------------------
-            # اللاعب الأول
-            # -------------------------------------------------
 
             p1_fail = (
 
@@ -2228,10 +2194,6 @@ class DuelSession:
                         )
                     )
 
-
-            # -------------------------------------------------
-            # اللاعب الثاني
-            # -------------------------------------------------
 
             p2_fail = (
 
@@ -3500,7 +3462,7 @@ async def delete_magic_event(
 
 
 # =========================================================
-# الغارة المجدولة
+# الغارة المجدولة (مع معالجة عدم وجود القناة لمنع الانهيار)
 # =========================================================
 
 @tasks.loop(hours=12)
@@ -3515,8 +3477,8 @@ async def scheduled_attack():
 
         print(
 
-            f"⚠️ لم يتم العثور على قناة "
-            f"الغارات: {RAID_CHANNEL_ID}"
+            f"⚠️ تحذير: لم يتم العثور على قناة "
+            f"الغارات ({RAID_CHANNEL_ID}). تم تخطي الغارة المجدولة بأمان."
         )
 
         return
@@ -3680,18 +3642,10 @@ async def on_command_error(
 
 async def setup_bot():
 
-    # -----------------------------------------------------
-    # زر الغارة يعمل بعد Restart
-    # -----------------------------------------------------
-
     bot.add_view(
         VillageDefenseView()
     )
 
-
-    # -----------------------------------------------------
-    # تشغيل الغارات التلقائية
-    # -----------------------------------------------------
 
     if not scheduled_attack.is_running():
 
@@ -3704,13 +3658,10 @@ async def setup_bot():
 
 async def runner():
 
-    # تشغيل Dashboard API
     await start_dashboard_server()
 
-    # تجهيز البوت
     await setup_bot()
 
-    # تشغيل Discord
     await bot.start(
         os.getenv("BOT_TOKEN")
         or
@@ -3755,4 +3706,4 @@ if __name__ == "__main__":
 
             print(
                 f"❌ خطأ قاتل أثناء تشغيل البوت: {e}"
-                  )
+            )
