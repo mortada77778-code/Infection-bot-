@@ -456,8 +456,8 @@ def make_embed(
 
         color=color or COLORS["magic"],
 
-        timestamp=datetime.utcnow()
-    )
+        timestamp = datetime.now(timezone.utc)
+
 
     embed.set_footer(
         text=AUTHOR_SIGNATURE
