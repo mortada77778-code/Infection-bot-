@@ -1,138 +1,28 @@
 import discord
 from discord.ext import commands
-import random
-import os
+from discord import app_commands
 import sqlite3
-import asyncio
 from datetime import datetime
-
-
-# =========================================================
-# 🪄 إعدادات البوت
-# =========================================================
-
-TOKEN = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
-
-PREFIX = "!"
-
-AUTHOR_SIGNATURE = "✦ صُنع بعناية بواسطة سيدريك 🪄"
-
-DB_FILE = "magic_bot.db"
-
-MAX_HP = 200
-
-# نظام المانا الجديد
-MAX_MANA = 100
-START_MANA = 100
-
-# استعادة 50% من تكلفة التعويذة
-MANA_REGEN_PERCENT = 0.50
-
-DUEL_TIMEOUT = 180
+import os
 
 # =========================================================
-# 🏰 إعدادات الغارة
+#                     إعدادات البوت
 # =========================================================
 
-VILLAGE_MAX_HP = 500
-RAID_DAMAGE_MIN = 15
-RAID_DAMAGE_MAX = 25
-RAID_COOLDOWN = 10
+TOKEN = os.getenv("DISCORD_TOKEN") or "PUT_YOUR_BOT_TOKEN_HERE"
 
-raid_active = False
-village_hp = VILLAGE_MAX_HP
+DB_FILE = "house_cup.db"
 
-raid_attacks = {}
+AUTHOR_SIGNATURE = "✦ تم صنعه بواسطة سيدريك ✦"
 
-
-# =========================================================
-# Discord
-# =========================================================
-
-intents = discord.Intents.default()
-
-intents.message_content = True
-intents.members = True
-
-bot = commands.Bot(
-    command_prefix=PREFIX,
-    intents=intents,
-    help_command=None
-)
-
-
-# =========================================================
-# 🎨 الألوان
-# =========================================================
-
-COLORS = {
-    "magic": 0x2B1338,
-    "gold": 0xD4AF37,
-    "danger": 0x6E0B14,
-    "success": 0x1E5631,
-    "blue": 0x162A4A,
-    "dark": 0x15121C,
+HOUSE_ROLES = {
+    "جريفندور": "🦁",
+    "هافلباف": "🦡",
+    "رافنكلو": "🦅",
+    "سليذرين": "🐍",
 }
-
-
-def make_embed(
-    title,
-    description="",
-    color=None
-):
-
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        color=color or COLORS["magic"],
-        timestamp=datetime.utcnow()
-    )
-
-    embed.set_footer(
-        text=AUTHOR_SIGNATURE
-    )
-
-    return embed
-
-
-# =========================================================
-# 🏠 البيوت
-# =========================================================
-
-HOUSE_DATA = {
-
-    "جريفندور": {
-        "emoji": "🦁",
-        "english": "Gryffindor",
-        "color": 0x740909,
-        "desc": "الجرأة والشجاعة والفروسية."
-    },
-
-    "هافلباف": {
-        "emoji": "🦡",
-        "english": "Hufflepuff",
-        "color": 0xECB939,
-        "desc": "الإخلاص والعدالة والعمل الجاد."
-    },
-
-    "رافنكلو": {
-        "emoji": "🦅",
-        "english": "Ravenclaw",
-        "color": 0x0E1A40,
-        "desc": "الحكمة والذكاء والإبداع."
-    },
-
-    "سليذرين": {
-        "emoji": "🐍",
-        "english": "Slytherin",
-        "color": 0x1A472A,
-        "desc": "الطموح والدهاء والقيادة."
-    }
-}
-
 
 HOUSE_ALIASES = {
-
     "جريفندور": "جريفندور",
     "gryffindor": "جريفندور",
 
@@ -140,96 +30,79 @@ HOUSE_ALIASES = {
     "hufflepuff": "هافلباف",
 
     "رافنكلو": "رافنكلو",
-    "رافينكلو": "رافنكلو",
     "ravenclaw": "رافنكلو",
 
     "سليذرين": "سليذرين",
-    "سليذيرين": "سليذرين",
     "slytherin": "سليذرين",
 }
 
 
-def normalize_house(name):
+# =========================================================
+#                     Discord Bot
+# =========================================================
 
-    if not name:
-        return None
+intents = discord.Intents.default()
 
-    return HOUSE_ALIASES.get(
-        name.strip().lower()
-    )
+intents.members = True
+intents.message_content = True
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None
+)
 
 
 # =========================================================
-# 🗄️ قاعدة البيانات
+#                     أدوات عامة
 # =========================================================
+
+def apply_signature(embed: discord.Embed):
+    """
+    إضافة توقيع سيدريك إلى الـ Embed.
+    """
+    embed.set_footer(text=AUTHOR_SIGNATURE)
+    return embed
+
 
 def get_db():
-
-    conn = sqlite3.connect(
-        DB_FILE,
-        check_same_thread=False
-    )
-
+    conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
-
     return conn
 
+
+# =========================================================
+#                     قاعدة البيانات
+# =========================================================
 
 def init_db():
 
     conn = get_db()
-
     cur = conn.cursor()
 
-    # -----------------------------------------
-    # نقاط البيوت
-    # -----------------------------------------
-
+    # نقاط المنازل
     cur.execute("""
         CREATE TABLE IF NOT EXISTS house_scores (
-
             guild_id INTEGER NOT NULL,
-
             house TEXT NOT NULL,
-
             points INTEGER NOT NULL DEFAULT 0,
-
-            PRIMARY KEY (
-                guild_id,
-                house
-            )
+            PRIMARY KEY (guild_id, house)
         )
     """)
 
-    # -----------------------------------------
-    # الطلاب والبيوت
-    # -----------------------------------------
-
+    # ربط الأعضاء بالمنازل
     cur.execute("""
         CREATE TABLE IF NOT EXISTS members_houses (
-
             guild_id INTEGER NOT NULL,
-
             user_id INTEGER NOT NULL,
-
             house TEXT NOT NULL,
-
-            joined_at TEXT NOT NULL,
-
-            PRIMARY KEY (
-                guild_id,
-                user_id
-            )
+            PRIMARY KEY (guild_id, user_id)
         )
     """)
 
-    # -----------------------------------------
-    # سجل النقاط
-    # -----------------------------------------
-
+    # سجل العمليات
     cur.execute("""
         CREATE TABLE IF NOT EXISTS point_logs (
-
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             guild_id INTEGER NOT NULL,
@@ -250,111 +123,20 @@ def init_db():
         )
     """)
 
-    # -----------------------------------------
-    # إحصائيات اللاعبين
-    # -----------------------------------------
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS players (
-
-            guild_id INTEGER NOT NULL,
-
-            user_id INTEGER NOT NULL,
-
-            wins INTEGER NOT NULL DEFAULT 0,
-
-            losses INTEGER NOT NULL DEFAULT 0,
-
-            draws INTEGER NOT NULL DEFAULT 0,
-
-            total_damage INTEGER NOT NULL DEFAULT 0,
-
-            total_duels INTEGER NOT NULL DEFAULT 0,
-
-            created_at TEXT NOT NULL,
-
-            PRIMARY KEY (
-                guild_id,
-                user_id
-            )
-        )
-    """)
-
-    # -----------------------------------------
-    # سجل المبارزات
-    # -----------------------------------------
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS duel_logs (
-
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            guild_id INTEGER NOT NULL,
-
-            player1_id INTEGER NOT NULL,
-
-            player2_id INTEGER NOT NULL,
-
-            winner_id INTEGER,
-
-            player1_damage INTEGER NOT NULL DEFAULT 0,
-
-            player2_damage INTEGER NOT NULL DEFAULT 0,
-
-            rounds INTEGER NOT NULL DEFAULT 0,
-
-            created_at TEXT NOT NULL
-        )
-    """)
-
-    # -----------------------------------------
-    # الفعاليات
-    # -----------------------------------------
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS events (
-
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            guild_id INTEGER NOT NULL,
-
-            title TEXT NOT NULL,
-
-            description TEXT NOT NULL,
-
-            created_by INTEGER NOT NULL,
-
-            active INTEGER NOT NULL DEFAULT 1,
-
-            created_at TEXT NOT NULL
-        )
-    """)
-
     conn.commit()
-
     conn.close()
 
 
-# =========================================================
-# 🏠 تجهيز البيوت للسيرفر
-# =========================================================
-
-def ensure_guild(guild_id):
+def ensure_guild(guild_id: int):
 
     conn = get_db()
-
     cur = conn.cursor()
 
-    for house in HOUSE_DATA:
+    for house in HOUSE_ROLES:
 
         cur.execute("""
             INSERT OR IGNORE INTO house_scores
-            (
-                guild_id,
-                house,
-                points
-            )
-
+            (guild_id, house, points)
             VALUES (?, ?, 0)
         """, (
             guild_id,
@@ -362,70 +144,86 @@ def ensure_guild(guild_id):
         ))
 
     conn.commit()
-
     conn.close()
 
 
 # =========================================================
-# 👤 تسجيل الطالب
+#                     الصلاحيات
 # =========================================================
 
-def register_student(
-    guild_id,
-    user_id,
-    house
+def can_manage_cup(member: discord.Member):
+
+    if member.guild_permissions.administrator:
+        return True
+
+    allowed_roles = {
+        "مدير الكأس",
+        "مشرف الكأس",
+        "House Cup",
+        "Cup Manager"
+    }
+
+    for role in member.roles:
+
+        if role.name in allowed_roles:
+            return True
+
+    return False
+
+
+# =========================================================
+#                     المنازل
+# =========================================================
+
+def normalize_house(name):
+
+    if not name:
+        return None
+
+    return HOUSE_ALIASES.get(
+        name.strip().lower()
+    )
+
+
+def house_from_roles(member: discord.Member):
+
+    found = []
+
+    for role in member.roles:
+
+        house = normalize_house(role.name)
+
+        if house and house not in found:
+            found.append(house)
+
+    if len(found) == 1:
+        return found[0], None
+
+    if len(found) > 1:
+
+        return None, (
+            "العضو لديه أكثر من رتبة منزل:\n"
+            + "\n".join(
+                f"• {HOUSE_ROLES[h]} {h}"
+                for h in found
+            )
+        )
+
+    return None, None
+
+
+def house_from_database(
+    guild_id: int,
+    user_id: int
 ):
 
     conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO members_houses
-        (
-            guild_id,
-            user_id,
-            house,
-            joined_at
-        )
-
-        VALUES (?, ?, ?, ?)
-
-        ON CONFLICT(
-            guild_id,
-            user_id
-        )
-
-        DO UPDATE SET
-            house = excluded.house
-    """, (
-        guild_id,
-        user_id,
-        house,
-        datetime.utcnow().isoformat()
-    ))
-
-    conn.commit()
-
-    conn.close()
-
-
-def get_student_house(
-    guild_id,
-    user_id
-):
-
-    conn = get_db()
-
     cur = conn.cursor()
 
     cur.execute("""
         SELECT house
-
         FROM members_houses
-
         WHERE guild_id = ?
-
         AND user_id = ?
     """, (
         guild_id,
@@ -436,37 +234,60 @@ def get_student_house(
 
     conn.close()
 
-    return row["house"] if row else None
+    if row:
+        return row["house"]
+
+    return None
+
+
+def resolve_member_house(member: discord.Member):
+
+    # الأولوية لرتبة Discord
+    house, error = house_from_roles(member)
+
+    if error:
+        return None, error
+
+    if house:
+        return house, None
+
+    # ثم قاعدة البيانات
+    house = house_from_database(
+        member.guild.id,
+        member.id
+    )
+
+    if house:
+        return house, None
+
+    return None, None
 
 
 # =========================================================
-# 🏆 نقاط كأس المنازل
+#                     النقاط
 # =========================================================
 
 def add_points(
-    guild_id,
-    house,
-    amount,
+    guild_id: int,
+    house: str,
+    amount: int,
     user_id,
-    moderator_id,
-    reason
+    moderator_id: int,
+    reason: str
 ):
 
-    ensure_guild(
-        guild_id
-    )
+    ensure_guild(guild_id)
 
     conn = get_db()
-
     cur = conn.cursor()
 
+    # تحديث النقاط
     cur.execute("""
         UPDATE house_scores
 
         SET points = points + ?
 
         WHERE guild_id = ?
-
         AND house = ?
     """, (
         amount,
@@ -474,6 +295,7 @@ def add_points(
         house
     ))
 
+    # تسجيل العملية
     cur.execute("""
         INSERT INTO point_logs
         (
@@ -483,10 +305,11 @@ def add_points(
             user_id,
             moderator_id,
             reason,
-            created_at
+            created_at,
+            undone
         )
 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
     """, (
         guild_id,
         house,
@@ -494,18 +317,20 @@ def add_points(
         user_id,
         moderator_id,
         reason,
-        datetime.utcnow().isoformat()
+        datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
     ))
 
     log_id = cur.lastrowid
 
+    # الحصول على الرصيد الجديد
     cur.execute("""
         SELECT points
 
         FROM house_scores
 
         WHERE guild_id = ?
-
         AND house = ?
     """, (
         guild_id,
@@ -517,49 +342,18 @@ def add_points(
     new_points = row["points"]
 
     conn.commit()
-
     conn.close()
 
     return log_id, new_points
 
 
-def get_scores(guild_id):
-
-    ensure_guild(
-        guild_id
-    )
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT house, points
-
-        FROM house_scores
-
-        WHERE guild_id = ?
-
-        ORDER BY points DESC
-    """, (
-        guild_id,
-    ))
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    return rows
-
-
 # =========================================================
-# ↩️ التراجع
+#                     التراجع
 # =========================================================
 
-def undo_last_action(guild_id):
+def undo_last_action(guild_id: int):
 
     conn = get_db()
-
     cur = conn.cursor()
 
     cur.execute("""
@@ -568,14 +362,13 @@ def undo_last_action(guild_id):
         FROM point_logs
 
         WHERE guild_id = ?
-
         AND undone = 0
 
         ORDER BY id DESC
 
         LIMIT 1
     """, (
-        guild_id,
+        guild_id
     ))
 
     row = cur.fetchone()
@@ -586,13 +379,13 @@ def undo_last_action(guild_id):
 
         return None
 
+    # عكس العملية
     cur.execute("""
         UPDATE house_scores
 
         SET points = points - ?
 
         WHERE guild_id = ?
-
         AND house = ?
     """, (
         row["amount"],
@@ -600,6 +393,7 @@ def undo_last_action(guild_id):
         row["house"]
     ))
 
+    # وضع علامة تراجع
     cur.execute("""
         UPDATE point_logs
 
@@ -611,21 +405,46 @@ def undo_last_action(guild_id):
     ))
 
     conn.commit()
-
     conn.close()
 
     return row
 
 
 # =========================================================
-# 🏆 Embed الكأس
+#                     ترتيب المنازل
 # =========================================================
 
-def create_cup_embed(guild):
+def get_scores(guild_id: int):
 
-    rows = get_scores(
-        guild.id
-    )
+    ensure_guild(guild_id)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT house, points
+
+        FROM house_scores
+
+        WHERE guild_id = ?
+
+        ORDER BY points DESC
+    """, (
+        guild_id
+    ))
+
+    rows = cur.fetchall()
+
+    conn.close()
+
+    return rows
+
+
+def create_cup_embed(
+    guild: discord.Guild
+):
+
+    rows = get_scores(guild.id)
 
     medals = [
         "🥇",
@@ -634,25 +453,22 @@ def create_cup_embed(guild):
         "4️⃣"
     ]
 
-    embed = make_embed(
-        "🏆 كأس المنازل",
-
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "✨ **ترتيب المنازل الحالي**\n"
-        "━━━━━━━━━━━━━━━━━━━━",
-
-        COLORS["gold"]
+    embed = discord.Embed(
+        title="🏆 كأس المنازل",
+        description=(
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "✨ **ترتيب المنازل الحالي**\n"
+            "━━━━━━━━━━━━━━━━━━━━"
+        ),
+        color=0xD4AF37
     )
 
     for index, row in enumerate(rows):
 
         house = row["house"]
-
         points = row["points"]
 
-        info = HOUSE_DATA[
-            house
-        ]
+        emoji = HOUSE_ROLES[house]
 
         medal = (
             medals[index]
@@ -662,1976 +478,578 @@ def create_cup_embed(guild):
 
         embed.add_field(
             name=(
-                f"{medal} "
-                f"{info['emoji']} "
-                f"{house}"
+                f"{medal} {emoji} {house}"
             ),
-
             value=(
                 f"⭐ **{points:,} نقطة**"
             ),
-
             inline=False
         )
+
+    apply_signature(embed)
 
     return embed
 
 
 # =========================================================
-# ⚔️ نظام المبارزات
+#                     سجل العمليات
 # =========================================================
 
-SPELLS = {
-
-    "expelliarmus": {
-        "name": "إكسبليارموس",
-        "emoji": "🪄",
-        "cost": 15,
-        "damage": 25,
-        "type": "attack"
-    },
-
-    "stupefy": {
-        "name": "ستوبفاي",
-        "emoji": "💫",
-        "cost": 25,
-        "damage": 40,
-        "type": "attack"
-    },
-
-    "confringo": {
-        "name": "كونفرينغو",
-        "emoji": "🔥",
-        "cost": 35,
-        "damage": 55,
-        "type": "attack"
-    },
-
-    "reducto": {
-        "name": "ريداكتو",
-        "emoji": "💥",
-        "cost": 30,
-        "damage": 45,
-        "type": "attack"
-    },
-
-    "incendio": {
-        "name": "إنسينديو",
-        "emoji": "🔥",
-        "cost": 20,
-        "damage": 30,
-        "type": "attack"
-    },
-
-    "depulso": {
-        "name": "ديبولسو",
-        "emoji": "🌪️",
-        "cost": 20,
-        "damage": 30,
-        "type": "attack"
-    },
-
-    "protego": {
-        "name": "بروتيغو",
-        "emoji": "🛡️",
-        "cost": 20,
-        "damage": 0,
-        "type": "shield"
-    },
-
-    "episkey": {
-        "name": "إبيسكي",
-        "emoji": "💚",
-        "cost": 25,
-        "damage": 0,
-        "type": "heal"
-    }
-}
-
-
-active_duels = {}
-
-
-class DuelPlayer:
-
-    def __init__(self, user):
-
-        self.user = user
-
-        self.hp = MAX_HP
-
-        self.mana = START_MANA
-
-        self.shield = 0
-
-        self.damage_dealt = 0
-
-        self.spell = None
-
-
-class DuelSession:
-
-    def __init__(
-        self,
-        guild,
-        player1,
-        player2
-    ):
-
-        self.guild = guild
-
-        self.player1 = DuelPlayer(
-            player1
-        )
-
-        self.player2 = DuelPlayer(
-            player2
-        )
-
-        self.round = 0
-
-        self.finished = False
-
-        self.message = None
-
-
-    def get_player(
-        self,
-        user_id
-    ):
-
-        if self.player1.user.id == user_id:
-            return self.player1
-
-        if self.player2.user.id == user_id:
-            return self.player2
-
-        return None
-
-
-def hp_bar(hp):
-
-    hp = max(
-        0,
-        min(MAX_HP, hp)
-    )
-
-    total = 10
-
-    filled = round(
-        hp / MAX_HP * total
-    )
-
-    return (
-        "🟩" * filled +
-        "⬛" * (total - filled)
-    )
-
-
-def mana_bar(mana):
-
-    mana = max(
-        0,
-        min(MAX_MANA, mana)
-    )
-
-    total = 10
-
-    filled = round(
-        mana / MAX_MANA * total
-    )
-
-    return (
-        "🔵" * filled +
-        "⚫" * (total - filled)
-    )
-
-
-def duel_embed(
-    session
+async def show_logs(
+    interaction: discord.Interaction
 ):
 
-    p1 = session.player1
+    conn = get_db()
+    cur = conn.cursor()
 
-    p2 = session.player2
+    cur.execute("""
+        SELECT *
 
-    description = (
+        FROM point_logs
 
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        WHERE guild_id = ?
 
-        f"🧙 **{p1.user.mention}**\n"
-        f"{hp_bar(p1.hp)} "
-        f"`{max(0,p1.hp)}/{MAX_HP}`\n"
-        f"{mana_bar(p1.mana)} "
-        f"`{p1.mana}/{MAX_MANA}`\n\n"
+        ORDER BY id DESC
 
-        "⚔️ VS ⚔️\n\n"
+        LIMIT 10
+    """, (
+        interaction.guild.id
+    ))
 
-        f"🧙 **{p2.user.mention}**\n"
-        f"{hp_bar(p2.hp)} "
-        f"`{max(0,p2.hp)}/{MAX_HP}`\n"
-        f"{mana_bar(p2.mana)} "
-        f"`{p2.mana}/{MAX_MANA}`\n\n"
+    rows = cur.fetchall()
 
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
+    conn.close()
 
-        f"⚔️ الجولة: **{session.round + 1}**\n\n"
-
-        "✨ اختاروا تعاويذكم."
+    embed = discord.Embed(
+        title="📜 سجل كأس المنازل",
+        description=(
+            "آخر 10 عمليات مسجلة"
+        ),
+        color=0x5865F2
     )
 
-    return make_embed(
-        "⚔️ المبارزة السحرية",
-        description,
-        COLORS["magic"]
+    if not rows:
+
+        embed.description = (
+            "لا توجد عمليات مسجلة حتى الآن."
+        )
+
+    for row in rows:
+
+        amount = row["amount"]
+
+        sign = (
+            "+"
+            if amount >= 0
+            else ""
+        )
+
+        member_text = (
+            f"<@{row['user_id']}>"
+            if row["user_id"]
+            else "🏠 للمنزل مباشرة"
+        )
+
+        undone = (
+            "\n↩️ **تم التراجع عن العملية**"
+            if row["undone"]
+            else ""
+        )
+
+        embed.add_field(
+            name=(
+                f"#{row['id']} • "
+                f"{HOUSE_ROLES[row['house']]} "
+                f"{row['house']}"
+            ),
+            value=(
+                f"⭐ **{sign}{amount:,} نقطة**\n"
+                f"👤 {member_text}\n"
+                f"📝 {row['reason']}\n"
+                f"🛡️ <@{row['moderator_id']}>\n"
+                f"🕐 {row['created_at']}"
+                f"{undone}"
+            ),
+            inline=False
+        )
+
+    apply_signature(embed)
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
     )
 
 
 # =========================================================
-# 🔘 زر التعويذة
+#                     Modal إضافة النقاط
 # =========================================================
 
-class SpellButton(
-    discord.ui.Button
-):
+class AddPointsModal(discord.ui.Modal):
 
-    def __init__(
+    title = "➕ إضافة نقاط"
+
+    member = discord.ui.TextInput(
+        label="ID العضو — اختياري",
+        placeholder=(
+            "ضع ID العضو أو اتركه فارغًا"
+        ),
+        required=False,
+        max_length=25
+    )
+
+    house = discord.ui.TextInput(
+        label="المنزل — اختياري",
+        placeholder=(
+            "هافلباف / جريفندور / رافنكلو / سليذرين"
+        ),
+        required=False,
+        max_length=30
+    )
+
+    points = discord.ui.TextInput(
+        label="عدد النقاط",
+        placeholder="مثال: 25",
+        required=True,
+        max_length=10
+    )
+
+    reason = discord.ui.TextInput(
+        label="سبب النقاط",
+        placeholder="مثال: الفوز في المسابقة",
+        required=True,
+        style=discord.TextStyle.paragraph,
+        max_length=300
+    )
+
+    async def on_submit(
         self,
-        spell_id
+        interaction: discord.Interaction
     ):
 
-        spell = SPELLS[
-            spell_id
-        ]
+        # ---------------------------------------------
+        # التحقق من النقاط
+        # ---------------------------------------------
 
-        super().__init__(
-            label=spell["name"],
-            emoji=spell["emoji"],
-            style=discord.ButtonStyle.secondary
+        try:
+
+            amount = int(
+                self.points.value.strip()
+            )
+
+            if amount <= 0:
+                raise ValueError
+
+        except ValueError:
+
+            return await interaction.response.send_message(
+                "❌ عدد النقاط يجب أن يكون رقمًا أكبر من صفر.",
+                ephemeral=True
+            )
+
+        # ---------------------------------------------
+        # المنزل اليدوي
+        # ---------------------------------------------
+
+        selected_house = normalize_house(
+            self.house.value
         )
 
-        self.spell_id = spell_id
-
-
-    async def callback(
-        self,
-        interaction
-    ):
-
-        view = self.view
-
-        session = view.session
-
-        if session.finished:
+        if self.house.value.strip() and not selected_house:
 
             return await interaction.response.send_message(
-                "❌ انتهت المبارزة.",
+                "❌ اسم المنزل غير صحيح.",
                 ephemeral=True
             )
 
-        player = session.get_player(
-            interaction.user.id
-        )
+        member_obj = None
 
-        if not player:
+        # ---------------------------------------------
+        # العضو
+        # ---------------------------------------------
 
-            return await interaction.response.send_message(
-                "❌ أنت لست طرفاً في المبارزة.",
-                ephemeral=True
+        if self.member.value.strip():
+
+            try:
+
+                user_id = int(
+                    self.member.value.strip()
+                )
+
+            except ValueError:
+
+                return await interaction.response.send_message(
+                    "❌ ID العضو غير صحيح.",
+                    ephemeral=True
+                )
+
+            try:
+
+                member_obj = (
+                    await interaction.guild.fetch_member(
+                        user_id
+                    )
+                )
+
+            except discord.NotFound:
+
+                return await interaction.response.send_message(
+                    "❌ لم أجد هذا العضو في السيرفر.",
+                    ephemeral=True
+                )
+
+            # محاولة معرفة المنزل
+            detected_house, error = resolve_member_house(
+                member_obj
             )
 
-        if player.spell:
+            if error:
 
-            return await interaction.response.send_message(
-                "⚠️ لقد اخترت تعويذتك بالفعل.",
-                ephemeral=True
-            )
+                return await interaction.response.send_message(
+                    f"⚠️ {error}",
+                    ephemeral=True
+                )
 
-        spell = SPELLS[
-            self.spell_id
-        ]
+            if detected_house:
 
-        if player.mana < spell["cost"]:
+                # منع التعارض
+                if (
+                    selected_house
+                    and
+                    selected_house != detected_house
+                ):
+
+                    return await interaction.response.send_message(
+                        (
+                            "❌ يوجد تعارض في المنزل.\n\n"
+                            f"العضو مسجل في "
+                            f"**{detected_house}** "
+                            f"لكن اخترت "
+                            f"**{selected_house}**."
+                        ),
+                        ephemeral=True
+                    )
+
+                selected_house = detected_house
+
+        # ---------------------------------------------
+        # التأكد من وجود منزل
+        # ---------------------------------------------
+
+        if not selected_house:
 
             return await interaction.response.send_message(
                 (
-                    f"🔵 لا تملك مانا كافية.\n"
-                    f"التكلفة: `{spell['cost']}`"
+                    "❌ لم أستطع تحديد المنزل.\n\n"
+                    "إما اختر عضوًا لديه منزل "
+                    "أو اكتب اسم المنزل يدويًا."
                 ),
                 ephemeral=True
             )
 
-        player.spell = self.spell_id
+        # ---------------------------------------------
+        # تسجيل العملية
+        # ---------------------------------------------
+
+        user_id = (
+            member_obj.id
+            if member_obj
+            else None
+        )
+
+        log_id, new_score = add_points(
+            guild_id=interaction.guild.id,
+            house=selected_house,
+            amount=amount,
+            user_id=user_id,
+            moderator_id=interaction.user.id,
+            reason=self.reason.value.strip()
+        )
+
+        emoji = HOUSE_ROLES[selected_house]
+
+        embed = discord.Embed(
+            title="✨ تم تسجيل النقاط",
+            color=0x57F287
+        )
+
+        embed.add_field(
+            name="🏠 المنزل",
+            value=(
+                f"{emoji} **{selected_house}**"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="⭐ النقاط",
+            value=f"**+{amount:,}**",
+            inline=True
+        )
+
+        if member_obj:
+
+            embed.add_field(
+                name="👤 العضو",
+                value=member_obj.mention,
+                inline=False
+            )
+
+        embed.add_field(
+            name="📝 السبب",
+            value=self.reason.value.strip(),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🏆 رصيد المنزل",
+            value=(
+                f"**{new_score:,} نقطة**"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔖 رقم العملية",
+            value=f"#{log_id}",
+            inline=False
+        )
+
+        apply_signature(embed)
 
         await interaction.response.send_message(
-            (
-                f"✨ تم اختيار "
-                f"**{spell['name']}**."
-            ),
-            ephemeral=True
-        )
-
-        if (
-            session.player1.spell
-            and
-            session.player2.spell
-        ):
-
-            await view.execute_round()
-
-
-# =========================================================
-# ⚔️ واجهة المبارزة
-# =========================================================
-
-class DuelView(
-    discord.ui.View
-):
-
-    def __init__(
-        self,
-        session
-    ):
-
-        super().__init__(
-            timeout=DUEL_TIMEOUT
-        )
-
-        self.session = session
-
-        for spell_id in SPELLS:
-
-            self.add_item(
-                SpellButton(
-                    spell_id
-                )
-            )
-
-
-    async def execute_round(
-        self
-    ):
-
-        session = self.session
-
-        if session.finished:
-            return
-
-        session.round += 1
-
-        p1 = session.player1
-
-        p2 = session.player2
-
-        s1 = SPELLS[
-            p1.spell
-        ]
-
-        s2 = SPELLS[
-            p2.spell
-        ]
-
-        # -----------------------------------------
-        # المانا
-        # -----------------------------------------
-
-        p1.mana -= s1["cost"]
-
-        p2.mana -= s2["cost"]
-
-        # -----------------------------------------
-        # الدرع
-        # -----------------------------------------
-
-        p1.shield = (
-            35
-            if s1["type"] == "shield"
-            else 0
-        )
-
-        p2.shield = (
-            35
-            if s2["type"] == "shield"
-            else 0
-        )
-
-        # -----------------------------------------
-        # العلاج
-        # -----------------------------------------
-
-        if s1["type"] == "heal":
-
-            p1.hp = min(
-                MAX_HP,
-                p1.hp + 35
-            )
-
-        if s2["type"] == "heal":
-
-            p2.hp = min(
-                MAX_HP,
-                p2.hp + 35
-            )
-
-        # -----------------------------------------
-        # الضرر
-        # -----------------------------------------
-
-        damage1 = 0
-
-        damage2 = 0
-
-        if s1["type"] == "attack":
-
-            damage1 = s1["damage"]
-
-        if s2["type"] == "attack":
-
-            damage2 = s2["damage"]
-
-        # -----------------------------------------
-        # الدرع
-        # -----------------------------------------
-
-        if p2.shield:
-
-            damage1 = max(
-                0,
-                damage1 - p2.shield
-            )
-
-        if p1.shield:
-
-            damage2 = max(
-                0,
-                damage2 - p1.shield
-            )
-
-        # -----------------------------------------
-        # فرصة تخفيض الضرر
-        # -----------------------------------------
-
-        if damage1 and random.random() < 0.10:
-
-            damage1 = round(
-                damage1 * 0.5
-            )
-
-        if damage2 and random.random() < 0.10:
-
-            damage2 = round(
-                damage2 * 0.5
-            )
-
-        p2.hp -= damage1
-
-        p1.hp -= damage2
-
-        p1.damage_dealt += damage1
-
-        p2.damage_dealt += damage2
-
-        # -----------------------------------------
-        # استعادة 50% من المانا المصروفة
-        # -----------------------------------------
-
-        p1.mana = min(
-            MAX_MANA,
-            p1.mana +
-            round(
-                s1["cost"] *
-                MANA_REGEN_PERCENT
-            )
-        )
-
-        p2.mana = min(
-            MAX_MANA,
-            p2.mana +
-            round(
-                s2["cost"] *
-                MANA_REGEN_PERCENT
-            )
-        )
-
-        # -----------------------------------------
-        # النتيجة
-        # -----------------------------------------
-
-        winner = None
-
-        if p1.hp <= 0 and p2.hp <= 0:
-
-            session.finished = True
-
-            update_player_stats(
-                session.guild.id,
-                p1.user.id,
-                "draw",
-                p1.damage_dealt
-            )
-
-            update_player_stats(
-                session.guild.id,
-                p2.user.id,
-                "draw",
-                p2.damage_dealt
-            )
-
-            log_duel(
-                session,
-                None
-            )
-
-            result = (
-                f"### ⚔️ الجولة {session.round}\n\n"
-                f"{p1.user.mention} "
-                f"**{s1['name']}** → "
-                f"`{damage1}` ضرر\n\n"
-                f"{p2.user.mention} "
-                f"**{s2['name']}** → "
-                f"`{damage2}` ضرر\n\n"
-                "🤝 **انتهت المبارزة بالتعادل!**"
-            )
-
-        elif p1.hp <= 0:
-
-            winner = p2
-
-        elif p2.hp <= 0:
-
-            winner = p1
-
-        if winner:
-
-            session.finished = True
-
-            loser = (
-                p1
-                if winner == p2
-                else p2
-            )
-
-            update_player_stats(
-                session.guild.id,
-                winner.user.id,
-                "win",
-                winner.damage_dealt
-            )
-
-            update_player_stats(
-                session.guild.id,
-                loser.user.id,
-                "loss",
-                loser.damage_dealt
-            )
-
-            log_duel(
-                session,
-                winner.user.id
-            )
-
-            result = (
-                f"### ⚔️ الجولة {session.round}\n\n"
-                f"{p1.user.mention} "
-                f"**{s1['name']}** → "
-                f"`{damage1}` ضرر\n\n"
-                f"{p2.user.mention} "
-                f"**{s2['name']}** → "
-                f"`{damage2}` ضرر\n\n"
-                "━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🏆 **الفائز:** "
-                f"{winner.user.mention}\n"
-                f"⚔️ **الخاسر:** "
-                f"{loser.user.mention}"
-            )
-
-        else:
-
-            result = (
-                f"### ⚔️ الجولة {session.round}\n\n"
-                f"{p1.user.mention} "
-                f"**{s1['name']}** → "
-                f"`{damage1}` ضرر\n\n"
-                f"{p2.user.mention} "
-                f"**{s2['name']}** → "
-                f"`{damage2}` ضرر\n\n"
-
-                f"{p1.user.mention}\n"
-                f"{hp_bar(p1.hp)} "
-                f"`{max(0,p1.hp)}/{MAX_HP}`\n\n"
-
-                f"{p2.user.mention}\n"
-                f"{hp_bar(p2.hp)} "
-                f"`{max(0,p2.hp)}/{MAX_HP}`"
-            )
-
-        p1.spell = None
-
-        p2.spell = None
-
-        if session.finished:
-
-            active_duels.pop(
-                p1.user.id,
-                None
-            )
-
-            active_duels.pop(
-                p2.user.id,
-                None
-            )
-
-            self.stop()
-
-            await session.message.edit(
-                embed=make_embed(
-                    "⚔️ نتيجة المبارزة",
-                    result,
-                    COLORS["gold"]
-                ),
-                view=None
-            )
-
-            return
-
-        await session.message.edit(
-            embed=make_embed(
-                "⚔️ المبارزة السحرية",
-                result +
-                "\n\n✨ اختاروا تعاويذ الجولة القادمة.",
-                COLORS["magic"]
-            ),
-            view=self
-        )
-
-
-    async def on_timeout(
-        self
-    ):
-
-        session = self.session
-
-        if session.finished:
-            return
-
-        session.finished = True
-
-        p1 = session.player1
-
-        p2 = session.player2
-
-        active_duels.pop(
-            p1.user.id,
-            None
-        )
-
-        active_duels.pop(
-            p2.user.id,
-            None
-        )
-
-        if session.message:
-
-            await session.message.edit(
-                embed=make_embed(
-                    "⏰ انتهت مهلة المبارزة",
-                    (
-                        f"{p1.user.mention}\n"
-                        "ضد\n"
-                        f"{p2.user.mention}\n\n"
-                        "لم يتم إكمال المبارزة."
-                    ),
-                    COLORS["danger"]
-                ),
-                view=None
-            )
-
-
-# =========================================================
-# 📊 إحصائيات المبارزين
-# =========================================================
-
-def ensure_player(
-    guild_id,
-    user_id
-):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT OR IGNORE INTO players
-        (
-            guild_id,
-            user_id,
-            created_at
-        )
-
-        VALUES (?, ?, ?)
-    """, (
-        guild_id,
-        user_id,
-        datetime.utcnow().isoformat()
-    ))
-
-    conn.commit()
-
-    conn.close()
-
-
-def get_player_stats(
-    guild_id,
-    user_id
-):
-
-    ensure_player(
-        guild_id,
-        user_id
-    )
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-
-        FROM players
-
-        WHERE guild_id = ?
-
-        AND user_id = ?
-    """, (
-        guild_id,
-        user_id
-    ))
-
-    row = cur.fetchone()
-
-    conn.close()
-
-    return row
-
-
-def update_player_stats(
-    guild_id,
-    user_id,
-    result,
-    damage
-):
-
-    ensure_player(
-        guild_id,
-        user_id
-    )
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    if result == "win":
-
-        cur.execute("""
-            UPDATE players
-
-            SET
-                wins = wins + 1,
-                total_damage =
-                    total_damage + ?,
-                total_duels =
-                    total_duels + 1
-
-            WHERE guild_id = ?
-
-            AND user_id = ?
-        """, (
-            damage,
-            guild_id,
-            user_id
-        ))
-
-    elif result == "loss":
-
-        cur.execute("""
-            UPDATE players
-
-            SET
-                losses = losses + 1,
-                total_damage =
-                    total_damage + ?,
-                total_duels =
-                    total_duels + 1
-
-            WHERE guild_id = ?
-
-            AND user_id = ?
-        """, (
-            damage,
-            guild_id,
-            user_id
-        ))
-
-    else:
-
-        cur.execute("""
-            UPDATE players
-
-            SET
-                draws = draws + 1,
-                total_damage =
-                    total_damage + ?,
-                total_duels =
-                    total_duels + 1
-
-            WHERE guild_id = ?
-
-            AND user_id = ?
-        """, (
-            damage,
-            guild_id,
-            user_id
-        ))
-
-    conn.commit()
-
-    conn.close()
-
-
-def log_duel(
-    session,
-    winner_id
-):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO duel_logs
-        (
-            guild_id,
-
-            player1_id,
-            player2_id,
-
-            winner_id,
-
-            player1_damage,
-            player2_damage,
-
-            rounds,
-
-            created_at
-        )
-
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        session.guild.id,
-
-        session.player1.user.id,
-        session.player2.user.id,
-
-        winner_id,
-
-        session.player1.damage_dealt,
-        session.player2.damage_dealt,
-
-        session.round,
-
-        datetime.utcnow().isoformat()
-    ))
-
-    conn.commit()
-
-    conn.close()
-
-
-# =========================================================
-# ⚔️ بدء المبارزة
-# =========================================================
-
-@bot.command(name="مبارزة")
-async def duel_command(
-    ctx,
-    opponent: discord.Member = None
-):
-
-    if not opponent:
-
-        return await ctx.send(
-            embed=make_embed(
-                "⚔️ المبارزة",
-                "`!مبارزة @الساحر`",
-                COLORS["blue"]
-            )
-        )
-
-    if opponent.id == ctx.author.id:
-
-        return await ctx.send(
-            "❌ لا يمكنك مبارزة نفسك."
-        )
-
-    if opponent.bot:
-
-        return await ctx.send(
-            "❌ لا يمكنك مبارزة بوت."
-        )
-
-    if ctx.author.id in active_duels:
-
-        return await ctx.send(
-            "❌ أنت داخل مبارزة بالفعل."
-        )
-
-    if opponent.id in active_duels:
-
-        return await ctx.send(
-            "❌ هذا الساحر داخل مبارزة بالفعل."
-        )
-
-    session = DuelSession(
-        ctx.guild,
-        ctx.author,
-        opponent
-    )
-
-    active_duels[
-        ctx.author.id
-    ] = session
-
-    active_duels[
-        opponent.id
-    ] = session
-
-    view = DuelView(
-        session
-    )
-
-    message = await ctx.send(
-        embed=duel_embed(
-            session
-        ),
-        view=view
-    )
-
-    session.message = message
-
-
-# =========================================================
-# 📜 سجل المبارزات
-# =========================================================
-
-@bot.command(name="سجل-المبارزات")
-async def duel_history(ctx):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-
-        FROM duel_logs
-
-        WHERE guild_id = ?
-
-        ORDER BY id DESC
-
-        LIMIT 10
-    """, (
-        ctx.guild.id,
-    ))
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    embed = make_embed(
-        "📜 سجل المبارزات",
-        "",
-        COLORS["gold"]
-    )
-
-    if not rows:
-
-        embed.description = (
-            "لا توجد مبارزات مسجلة."
-        )
-
-    else:
-
-        for row in rows:
-
-            winner = (
-                f"<@{row['winner_id']}>"
-                if row["winner_id"]
-                else "🤝 تعادل"
-            )
-
-            embed.add_field(
-                name=(
-                    f"⚔️ <@{row['player1_id']}> "
-                    f"ضد "
-                    f"<@{row['player2_id']}>"
-                ),
-
-                value=(
-                    f"🏆 الفائز: {winner}\n"
-                    f"🔢 الجولات: `{row['rounds']}`\n"
-                    f"💥 الضرر: "
-                    f"`{row['player1_damage']}` "
-                    f"- "
-                    f"`{row['player2_damage']}`"
-                ),
-
-                inline=False
-            )
-
-    await ctx.send(
-        embed=embed
-    )
-
-
-# =========================================================
-# 📊 إحصائيات
-# =========================================================
-
-@bot.command(name="احصائيات")
-async def stats_command(
-    ctx,
-    member: discord.Member = None
-):
-
-    member = (
-        member
-        or ctx.author
-    )
-
-    row = get_player_stats(
-        ctx.guild.id,
-        member.id
-    )
-
-    house = get_student_house(
-        ctx.guild.id,
-        member.id
-    )
-
-    if house in HOUSE_DATA:
-
-        house_text = (
-            f"{HOUSE_DATA[house]['emoji']} "
-            f"**{house}**"
-        )
-
-    else:
-
-        house_text = "غير مسجل"
-
-    embed = make_embed(
-        "📊 إحصائيات الساحر",
-        f"🧙 **{member.mention}**",
-        COLORS["blue"]
-    )
-
-    embed.add_field(
-        name="🏠 المنزل",
-        value=house_text,
-        inline=True
-    )
-
-    embed.add_field(
-        name="🏆 الانتصارات",
-        value=f"`{row['wins']}`",
-        inline=True
-    )
-
-    embed.add_field(
-        name="💀 الخسائر",
-        value=f"`{row['losses']}`",
-        inline=True
-    )
-
-    embed.add_field(
-        name="🤝 التعادلات",
-        value=f"`{row['draws']}`",
-        inline=True
-    )
-
-    embed.add_field(
-        name="⚔️ المبارزات",
-        value=f"`{row['total_duels']}`",
-        inline=True
-    )
-
-    embed.add_field(
-        name="💥 الضرر",
-        value=f"`{row['total_damage']}`",
-        inline=True
-    )
-
-    await ctx.send(
-        embed=embed
-    )
-
-
-# =========================================================
-# 🏆 ترتيب المبارزين
-# =========================================================
-
-@bot.command(name="ترتيب-المبارزين")
-async def duel_ranking(ctx):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-
-        FROM players
-
-        WHERE guild_id = ?
-
-        ORDER BY
-            wins DESC,
-            total_damage DESC
-
-        LIMIT 10
-    """, (
-        ctx.guild.id,
-    ))
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    embed = make_embed(
-        "🏆 ترتيب المبارزين",
-        "أقوى السحرة في المبارزات.",
-        COLORS["gold"]
-    )
-
-    medals = [
-        "🥇",
-        "🥈",
-        "🥉"
-    ]
-
-    if not rows:
-
-        embed.description = (
-            "لا توجد بيانات."
-        )
-
-    else:
-
-        for index, row in enumerate(rows):
-
-            medal = (
-                medals[index]
-                if index < 3
-                else f"`#{index + 1}`"
-            )
-
-            embed.add_field(
-                name=(
-                    f"{medal} "
-                    f"<@{row['user_id']}>"
-                ),
-
-                value=(
-                    f"🏆 الانتصارات: "
-                    f"**{row['wins']}**\n"
-                    f"💥 الضرر: "
-                    f"**{row['total_damage']}**"
-                ),
-
-                inline=False
-            )
-
-    await ctx.send(
-        embed=embed
-    )
-
-
-# =========================================================
-# 🎩 قبعة التنسيق
-# =========================================================
-
-QUESTIONS = [
-
-    (
-        "ما الصفة التي تريد أن يعرفك الناس بها؟",
-
-        [
-            ("الشجاعة", "جريفندور"),
-            ("الطموح", "سليذرين"),
-            ("الحكمة", "رافنكلو"),
-            ("الإخلاص", "هافلباف")
-        ]
-    ),
-
-    (
-        "وجدت باباً غامضاً، ماذا تفعل؟",
-
-        [
-            ("أفتحه فوراً", "جريفندور"),
-            ("أبحث عن أفضل طريقة لاستغلاله", "سليذرين"),
-            ("أحل اللغز أولاً", "رافنكلو"),
-            ("أتأكد أنه آمن للجميع", "هافلباف")
-        ]
-    ),
-
-    (
-        "ما الشيء الذي ترفضه أكثر؟",
-
-        [
-            ("الجبن", "جريفندور"),
-            ("غياب الطموح", "سليذرين"),
-            ("الجهل", "رافنكلو"),
-            ("الظلم", "هافلباف")
-        ]
-    ),
-
-    (
-        "أين تفضل قضاء وقتك؟",
-
-        [
-            ("في مغامرة", "جريفندور"),
-            ("أخطط لمستقبلي", "سليذرين"),
-            ("في المكتبة", "رافنكلو"),
-            ("مع الأصدقاء", "هافلباف")
-        ]
-    )
-]
-
-
-class SortingHatView(
-    discord.ui.View
-):
-
-    def __init__(
-        self,
-        user,
-        guild_id
-    ):
-
-        super().__init__(
-            timeout=120
-        )
-
-        self.user = user
-
-        self.guild_id = guild_id
-
-        self.index = 0
-
-        self.scores = {
-            house: 0
-            for house in HOUSE_DATA
-        }
-
-        self.build_buttons()
-
-
-    def build_buttons(self):
-
-        self.clear_items()
-
-        question = QUESTIONS[
-            self.index
-        ]
-
-        for label, house in question[1]:
-
-            self.add_item(
-                SortingButton(
-                    label,
-                    house
-                )
-            )
-
-
-class SortingButton(
-    discord.ui.Button
-):
-
-    def __init__(
-        self,
-        label,
-        house
-    ):
-
-        super().__init__(
-            label=label,
-            style=discord.ButtonStyle.secondary
-        )
-
-        self.house = house
-
-
-    async def callback(
-        self,
-        interaction
-    ):
-
-        view = self.view
-
-        if interaction.user.id != view.user.id:
-
-            return await interaction.response.send_message(
-                "❌ هذا الاختبار ليس لك.",
-                ephemeral=True
-            )
-
-        view.scores[
-            self.house
-        ] += 1
-
-        view.index += 1
-
-        if view.index < len(QUESTIONS):
-
-            view.build_buttons()
-
-            question = QUESTIONS[
-                view.index
-            ]
-
-            embed = make_embed(
-                "🎩 قبعة التنسيق",
-
-                f"### السؤال {view.index + 1}\n\n"
-                f"**{question[0]}**",
-
-                COLORS["gold"]
-            )
-
-            return await interaction.response.edit_message(
-                embed=embed,
-                view=view
-            )
-
-        winner = max(
-            view.scores,
-            key=view.scores.get
-        )
-
-        register_student(
-            view.guild_id,
-            view.user.id,
-            winner
-        )
-
-        info = HOUSE_DATA[
-            winner
-        ]
-
-        embed = make_embed(
-            "✨ القرار النهائي",
-
-            (
-                f"🧙 الساحر: "
-                f"{view.user.mention}\n\n"
-
-                f"{info['emoji']} **البيت:**\n"
-                f"## {winner}\n\n"
-
-                f"*{info['desc']}*\n\n"
-
-                "📜 تم تسجيل اسمك رسمياً."
-            ),
-
-            info["color"]
-        )
-
-        await interaction.response.edit_message(
             embed=embed,
-            view=None
-        )
-
-        view.stop()
-
-
-@bot.command(name="قبعة-التنسيق")
-async def sorting_hat(ctx):
-
-    if get_student_house(
-        ctx.guild.id,
-        ctx.author.id
-    ):
-
-        return await ctx.send(
-            embed=make_embed(
-                "🎩 قبعة التنسيق",
-                "⚠️ تم اختيار منزلك مسبقاً.",
-                COLORS["danger"]
-            )
-        )
-
-    view = SortingHatView(
-        ctx.author,
-        ctx.guild.id
-    )
-
-    question = QUESTIONS[0]
-
-    embed = make_embed(
-        "🎩 قبعة التنسيق",
-
-        (
-            "*تستقر القبعة فوق رأسك وتبدأ في قراءة أفكارك...*\n\n"
-
-            "### السؤال 1\n\n"
-
-            f"**{question[0]}**"
-        ),
-
-        COLORS["gold"]
-    )
-
-    await ctx.send(
-        embed=embed,
-        view=view
-    )
-
-
-# =========================================================
-# 🏆 أوامر كأس المنازل
-# =========================================================
-
-@bot.command(name="الكأس")
-async def cup_command(ctx):
-
-    await ctx.send(
-        embed=create_cup_embed(
-            ctx.guild
-        )
-    )
-
-
-@bot.command(name="تراجع")
-async def undo_command(ctx):
-
-    if not can_manage_cup(
-        ctx.author
-    ):
-
-        return await ctx.send(
-            "❌ ليس لديك صلاحية."
-        )
-
-    row = undo_last_action(
-        ctx.guild.id
-    )
-
-    if not row:
-
-        return await ctx.send(
-            "❌ لا توجد عملية قابلة للتراجع."
-        )
-
-    await ctx.send(
-        embed=make_embed(
-            "↩️ تم التراجع",
-
-            (
-                f"🏠 المنزل: "
-                f"**{row['house']}**\n"
-
-                f"⭐ العملية: "
-                f"**{row['amount']:+,} نقطة**\n"
-
-                f"📝 السبب: "
-                f"{row['reason']}"
-            ),
-
-            COLORS["gold"]
-        )
-    )
-
-
-def can_manage_cup(
-    member
-):
-
-    if member.guild_permissions.administrator:
-
-        return True
-
-    allowed = {
-        "مدير الكأس",
-        "مشرف الكأس",
-        "House Cup",
-        "Cup Manager"
-    }
-
-    return any(
-        role.name in allowed
-        for role in member.roles
-    )
-
-
-@bot.command(name="إضافة-نقاط")
-@commands.has_permissions(administrator=True)
-async def add_points_command(
-    ctx,
-    user_id: int,
-    points: int,
-    *,
-    reason: str = "بدون سبب"
-):
-
-    if points <= 0:
-
-        return await ctx.send(
-            "❌ النقاط يجب أن تكون أكبر من صفر."
-        )
-
-    try:
-
-        member = await ctx.guild.fetch_member(
-            user_id
-        )
-
-    except:
-
-        return await ctx.send(
-            "❌ لم أجد هذا الـID."
-        )
-
-    house = get_student_house(
-        ctx.guild.id,
-        member.id
-    )
-
-    if not house:
-
-        return await ctx.send(
-            f"❌ {member.mention} غير مسجل في منزل."
-        )
-
-    _, new_score = add_points(
-        ctx.guild.id,
-        house,
-        points,
-        member.id,
-        ctx.author.id,
-        reason
-    )
-
-    info = HOUSE_DATA[
-        house
-    ]
-
-    await ctx.send(
-        embed=make_embed(
-            "✨ تم تسجيل النقاط",
-
-            (
-                f"🧙 الساحر: "
-                f"{member.mention}\n"
-
-                f"🏠 المنزل: "
-                f"{info['emoji']} **{house}**\n"
-
-                f"⭐ النقاط: "
-                f"**+{points:,}**\n"
-
-                f"🏆 الرصيد الجديد: "
-                f"**{new_score:,}**\n"
-
-                f"📝 السبب: "
-                f"{reason}"
-            ),
-
-            COLORS["success"]
-        )
-    )
-
-
-@bot.command(name="خصم-نقاط")
-@commands.has_permissions(administrator=True)
-async def remove_points_command(
-    ctx,
-    house_name: str,
-    points: int,
-    *,
-    reason: str = "بدون سبب"
-):
-
-    house = normalize_house(
-        house_name
-    )
-
-    if not house:
-
-        return await ctx.send(
-            "❌ اسم البيت غير صحيح."
-        )
-
-    if points <= 0:
-
-        return await ctx.send(
-            "❌ النقاط يجب أن تكون أكبر من صفر."
-        )
-
-    _, new_score = add_points(
-        ctx.guild.id,
-        house,
-        -points,
-        None,
-        ctx.author.id,
-        reason
-    )
-
-    await ctx.send(
-        embed=make_embed(
-            "⚠️ تم خصم النقاط",
-
-            (
-                f"🏠 البيت: "
-                f"{HOUSE_DATA[house]['emoji']} "
-                f"**{house}**\n"
-
-                f"⭐ الخصم: "
-                f"**-{points:,}**\n"
-
-                f"🏆 الرصيد الحالي: "
-                f"**{new_score:,}**\n"
-
-                f"📝 السبب: "
-                f"{reason}"
-            ),
-
-            COLORS["danger"]
-        )
-    )
-
-
-# =========================================================
-# 🌟 ترتيب الطلاب
-# =========================================================
-
-@bot.command(name="ترتيب-الطلاب")
-async def students_leaderboard(ctx):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT
-            user_id,
-            house,
-            SUM(amount) AS total_points
-
-        FROM point_logs
-
-        WHERE guild_id = ?
-
-        AND user_id IS NOT NULL
-
-        AND undone = 0
-
-        GROUP BY user_id
-
-        ORDER BY total_points DESC
-
-        LIMIT 10
-    """, (
-        ctx.guild.id,
-    ))
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    embed = make_embed(
-        "🌟 لوحة شرف السحرة",
-        "أعلى الطلاب جمعاً للنقاط.",
-        COLORS["gold"]
-    )
-
-    medals = [
-        "🥇",
-        "🥈",
-        "🥉"
-    ]
-
-    if not rows:
-
-        embed.description = (
-            "لا توجد نقاط مسجلة للطلاب."
-        )
-
-    else:
-
-        for index, row in enumerate(rows):
-
-            medal = (
-                medals[index]
-                if index < 3
-                else f"`#{index + 1}`"
-            )
-
-            emoji = HOUSE_DATA.get(
-                row["house"],
-                {}
-            ).get(
-                "emoji",
-                "✨"
-            )
-
-            embed.add_field(
-                name=(
-                    f"{medal} "
-                    f"<@{row['user_id']}>"
-                ),
-
-                value=(
-                    f"🏠 {emoji} "
-                    f"**{row['house']}**\n"
-
-                    f"⭐ "
-                    f"**{row['total_points']:,} نقطة**"
-                ),
-
-                inline=False
-            )
-
-    await ctx.send(
-        embed=embed
-    )
-
-
-# =========================================================
-# 📜 سجل كأس المنازل
-# =========================================================
-
-@bot.command(name="السجل")
-async def cup_logs(ctx):
-
-    conn = get_db()
-
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-
-        FROM point_logs
-
-        WHERE guild_id = ?
-
-        ORDER BY id DESC
-
-        LIMIT 10
-    """, (
-        ctx.guild.id,
-    ))
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    embed = make_embed(
-        "📜 سجل كأس المنازل",
-        "",
-        COLORS["blue"]
-    )
-
-    if not rows:
-
-        embed.description = (
-            "لا توجد عمليات مسجلة."
-        )
-
-    else:
-
-        for row in rows:
-
-            user = (
-                f"<@{row['user_id']}>"
-                if row["user_id"]
-                else "🏠 البيت مباشرة"
-            )
-
-            embed.add_field(
-                name=(
-                    f"#{row['id']} • "
-                    f"{row['house']}"
-                ),
-
-                value=(
-                    f"👤 {user}\n"
-                    f"⭐ `{row['amount']:+,}`\n"
-                    f"📝 {row['reason']}"
-                ),
-
-                inline=False
-            )
-
-    await ctx.send(
-        embed=embed
-    )
-
-
-# =========================================================
-# ⚔️ نظام الغارات
-# =========================================================
-
-def raid_embed():
-
-    if raid_active:
-
-        status = "🟥 الغارة نشطة"
-
-        color = COLORS["danger"]
-
-    else:
-
-        status = "🟩 لا توجد غارة"
-
-        color = COLORS["success"]
-
-    percent = (
-        village_hp /
-        VILLAGE_MAX_HP
-    ) * 100
-
-    return make_embed(
-        "⚔️ الدفاع عن القرية",
-
-        (
-            f"### {status}\n\n"
-
-            f"🏰 **صحة القرية**\n"
-            f"`{max(0,village_hp)}/"
-            f"{VILLAGE_MAX_HP}`\n\n"
-
-            f"📊 الحالة: "
-            f"`{percent:.0f}%`\n\n"
-
-            "⚔️ ساهم في الدفاع عن القرية."
-        ),
-
-        color
-    )
-
-
-class RaidAttackButton(
-    discord.ui.Button
-):
-
-    def __init__(self):
-
-        super().__init__(
-            label="هجوم",
-            emoji="⚔️",
-            style=discord.ButtonStyle.danger
-        )
-
-
-    async def callback(
-        self,
-        interaction
-    ):
-
-        global village_hp
-
-        global raid_active
-
-        if not raid_active:
-
-            return await interaction.response.send_message(
-                "🟢 لا توجد غارة نشطة.",
-                ephemeral=True
-            )
-
-        now = asyncio.get_event_loop().time()
-
-        last = raid_attacks.get(
-            interaction.user.id,
-            0
-        )
-
-        if (
-            now - last
-            <
-            RAID_COOLDOWN
-        ):
-
-            remaining = (
-                RAID_COOLDOWN -
-                (now - last)
-            )
-
-            return await interaction.response.send_message(
-                (
-                    f"⏳ انتظر "
-                    f"`{remaining:.1f}` ثانية."
-                ),
-                ephemeral=True
-            )
-
-        raid_attacks[
-            interaction.user.id
-        ] = now
-
-        damage = random.randint(
-            RAID_DAMAGE_MIN,
-            RAID_DAMAGE_MAX
-        )
-
-        village_hp = max(
-            0,
-            village_hp - damage
-        )
-
-        if village_hp <= 0:
-
-            raid_active = False
-
-            await interaction.response.edit_message(
-
-                embed=make_embed(
-                    "🏆 تم صد الغارة!",
-
-                    (
-                        f"⚔️ المساهمة الأخيرة: "
-                        f"{interaction.user.mention}\n\n"
-
-                        "🏰 **تم إنقاذ القرية!**"
-                    ),
-
-                    COLORS["success"]
-                ),
-
-                view=None
-            )
-
-            return
-
-        await interaction.response.edit_message(
-            embed=raid_embed(),
-            view=self.view
-        )
-
-        await interaction.followup.send(
-            (
-                f"⚔️ {interaction.user.mention} "
-                f"سبب **{damage} ضرر**!"
-            ),
             ephemeral=True
         )
 
 
-class RaidView(
-    discord.ui.View
+# =========================================================
+#                     Modal خصم النقاط
+# =========================================================
+
+class RemovePointsModal(
+    discord.ui.Modal
 ):
+
+    title = "➖ خصم نقاط"
+
+    member = discord.ui.TextInput(
+        label="ID العضو — اختياري",
+        placeholder="ضع ID العضو أو اتركه فارغًا",
+        required=False,
+        max_length=25
+    )
+
+    house = discord.ui.TextInput(
+        label="المنزل — اختياري",
+        placeholder=(
+            "هافلباف / جريفندور / رافنكلو / سليذرين"
+        ),
+        required=False,
+        max_length=30
+    )
+
+    points = discord.ui.TextInput(
+        label="عدد النقاط",
+        placeholder="مثال: 10",
+        required=True,
+        max_length=10
+    )
+
+    reason = discord.ui.TextInput(
+        label="سبب الخصم",
+        placeholder="مثال: مخالفة قوانين المسابقة",
+        required=True,
+        style=discord.TextStyle.paragraph,
+        max_length=300
+    )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        try:
+
+            amount = int(
+                self.points.value.strip()
+            )
+
+            if amount <= 0:
+                raise ValueError
+
+        except ValueError:
+
+            return await interaction.response.send_message(
+                "❌ عدد النقاط يجب أن يكون رقمًا أكبر من صفر.",
+                ephemeral=True
+            )
+
+        selected_house = normalize_house(
+            self.house.value
+        )
+
+        if self.house.value.strip() and not selected_house:
+
+            return await interaction.response.send_message(
+                "❌ اسم المنزل غير صحيح.",
+                ephemeral=True
+            )
+
+        member_obj = None
+
+        # ---------------------------------------------
+        # العضو
+        # ---------------------------------------------
+
+        if self.member.value.strip():
+
+            try:
+
+                user_id = int(
+                    self.member.value.strip()
+                )
+
+            except ValueError:
+
+                return await interaction.response.send_message(
+                    "❌ ID العضو غير صحيح.",
+                    ephemeral=True
+                )
+
+            try:
+
+                member_obj = (
+                    await interaction.guild.fetch_member(
+                        user_id
+                    )
+                )
+
+            except discord.NotFound:
+
+                return await interaction.response.send_message(
+                    "❌ لم أجد هذا العضو في السيرفر.",
+                    ephemeral=True
+                )
+
+            detected_house, error = resolve_member_house(
+                member_obj
+            )
+
+            if error:
+
+                return await interaction.response.send_message(
+                    f"⚠️ {error}",
+                    ephemeral=True
+                )
+
+            if detected_house:
+
+                if (
+                    selected_house
+                    and
+                    selected_house != detected_house
+                ):
+
+                    return await interaction.response.send_message(
+                        "❌ المنزل المختار لا يطابق منزل العضو.",
+                        ephemeral=True
+                    )
+
+                selected_house = detected_house
+
+        # ---------------------------------------------
+        # التأكد من المنزل
+        # ---------------------------------------------
+
+        if not selected_house:
+
+            return await interaction.response.send_message(
+                "❌ يجب تحديد المنزل أو عضو يمكن معرفة منزله.",
+                ephemeral=True
+            )
+
+        # ---------------------------------------------
+        # تنفيذ الخصم
+        # ---------------------------------------------
+
+        user_id = (
+            member_obj.id
+            if member_obj
+            else None
+        )
+
+        log_id, new_score = add_points(
+            guild_id=interaction.guild.id,
+            house=selected_house,
+            amount=-amount,
+            user_id=user_id,
+            moderator_id=interaction.user.id,
+            reason=self.reason.value.strip()
+        )
+
+        emoji = HOUSE_ROLES[selected_house]
+
+        embed = discord.Embed(
+            title="⚠️ تم خصم النقاط",
+            color=0xED4245
+        )
+
+        embed.add_field(
+            name="🏠 المنزل",
+            value=(
+                f"{emoji} **{selected_house}**"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="⭐ النقاط",
+            value=f"**-{amount:,}**",
+            inline=True
+        )
+
+        if member_obj:
+
+            embed.add_field(
+                name="👤 العضو",
+                value=member_obj.mention,
+                inline=False
+            )
+
+        embed.add_field(
+            name="📝 السبب",
+            value=self.reason.value.strip(),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🏆 الرصيد الحالي",
+            value=(
+                f"**{new_score:,} نقطة**"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔖 رقم العملية",
+            value=f"#{log_id}",
+            inline=False
+        )
+
+        apply_signature(embed)
+
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True
+        )
+
+
+# =========================================================
+#                     لوحة كأس المنازل
+# =========================================================
+
+class CupView(discord.ui.View):
 
     def __init__(self):
 
@@ -2639,319 +1057,449 @@ class RaidView(
             timeout=None
         )
 
-        self.add_item(
-            RaidAttackButton()
+    # ---------------------------------------------
+    # إضافة
+    # ---------------------------------------------
+
+    @discord.ui.button(
+        label="إضافة نقاط",
+        emoji="➕",
+        style=discord.ButtonStyle.success,
+        custom_id="house_cup:add"
+    )
+    async def add_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not can_manage_cup(
+            interaction.user
+        ):
+
+            return await interaction.response.send_message(
+                "❌ ليس لديك صلاحية إدارة كأس المنازل.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            AddPointsModal()
         )
 
+    # ---------------------------------------------
+    # خصم
+    # ---------------------------------------------
 
-@bot.command(name="بدء-الغارة")
-@commands.has_permissions(administrator=True)
-async def start_raid(ctx):
+    @discord.ui.button(
+        label="خصم نقاط",
+        emoji="➖",
+        style=discord.ButtonStyle.danger,
+        custom_id="house_cup:remove"
+    )
+    async def remove_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
-    global raid_active
+        if not can_manage_cup(
+            interaction.user
+        ):
 
-    global village_hp
+            return await interaction.response.send_message(
+                "❌ ليس لديك صلاحية إدارة كأس المنازل.",
+                ephemeral=True
+            )
 
-    if raid_active:
-
-        return await ctx.send(
-            "⚠️ توجد غارة نشطة بالفعل."
+        await interaction.response.send_modal(
+            RemovePointsModal()
         )
 
-    raid_active = True
+    # ---------------------------------------------
+    # الإحصائيات
+    # ---------------------------------------------
 
-    village_hp = VILLAGE_MAX_HP
-
-    raid_attacks.clear()
-
-    await ctx.send(
-        embed=raid_embed(),
-        view=RaidView()
+    @discord.ui.button(
+        label="الترتيب",
+        emoji="📊",
+        style=discord.ButtonStyle.primary,
+        custom_id="house_cup:ranking"
     )
+    async def ranking_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
-
-@bot.command(name="حالة-الغارة")
-async def raid_status(ctx):
-
-    await ctx.send(
-        embed=raid_embed()
-    )
-
-
-@bot.command(name="إيقاف-الغارة")
-@commands.has_permissions(administrator=True)
-async def stop_raid(ctx):
-
-    global raid_active
-
-    raid_active = False
-
-    await ctx.send(
-        embed=make_embed(
-            "🛡️ انتهت الغارة",
-            "تم إيقاف الغارة.",
-            COLORS["success"]
+        await interaction.response.edit_message(
+            embed=create_cup_embed(
+                interaction.guild
+            ),
+            view=CupView()
         )
+
+    # ---------------------------------------------
+    # السجل
+    # ---------------------------------------------
+
+    @discord.ui.button(
+        label="السجل",
+        emoji="📜",
+        style=discord.ButtonStyle.secondary,
+        custom_id="house_cup:logs"
     )
+    async def logs_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await show_logs(
+            interaction
+        )
+
+    # ---------------------------------------------
+    # تحديث
+    # ---------------------------------------------
+
+    @discord.ui.button(
+        label="تحديث",
+        emoji="🔄",
+        style=discord.ButtonStyle.secondary,
+        custom_id="house_cup:refresh"
+    )
+    async def refresh_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.edit_message(
+            embed=create_cup_embed(
+                interaction.guild
+            ),
+            view=CupView()
+        )
 
 
 # =========================================================
-# 🎪 الفعاليات
+#                     أمر /الكأس
 # =========================================================
 
-@bot.command(name="فعالية")
-@commands.has_permissions(administrator=True)
-async def create_event(
-    ctx,
-    title: str,
-    *,
-    description: str
+@bot.tree.command(
+    name="الكأس",
+    description="عرض لوحة كأس المنازل"
+)
+async def cup_command(
+    interaction: discord.Interaction
 ):
 
-    conn = get_db()
+    ensure_guild(
+        interaction.guild.id
+    )
 
+    await interaction.response.send_message(
+        embed=create_cup_embed(
+            interaction.guild
+        ),
+        view=CupView()
+    )
+
+
+# =========================================================
+#                     أمر /تعيين_منزل
+# =========================================================
+
+@bot.tree.command(
+    name="تعيين_منزل",
+    description="تعيين منزل لعضو في قاعدة بيانات البوت"
+)
+@app_commands.describe(
+    member="العضو",
+    house="المنزل"
+)
+@app_commands.choices(
+    house=[
+        app_commands.Choice(
+            name="🦁 جريفندور",
+            value="جريفندور"
+        ),
+        app_commands.Choice(
+            name="🦡 هافلباف",
+            value="هافلباف"
+        ),
+        app_commands.Choice(
+            name="🦅 رافنكلو",
+            value="رافنكلو"
+        ),
+        app_commands.Choice(
+            name="🐍 سليذرين",
+            value="سليذرين"
+        )
+    ]
+)
+async def set_house(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    house: app_commands.Choice[str]
+):
+
+    if not can_manage_cup(
+        interaction.user
+    ):
+
+        return await interaction.response.send_message(
+            "❌ ليس لديك صلاحية.",
+            ephemeral=True
+        )
+
+    selected_house = house.value
+
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO events
+        INSERT INTO members_houses
         (
             guild_id,
-            title,
-            description,
-            created_by,
-            created_at
+            user_id,
+            house
         )
 
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?)
+
+        ON CONFLICT(guild_id, user_id)
+
+        DO UPDATE SET
+            house = excluded.house
     """, (
-        ctx.guild.id,
-        title,
-        description,
-        ctx.author.id,
-        datetime.utcnow().isoformat()
+        interaction.guild.id,
+        member.id,
+        selected_house
     ))
 
     conn.commit()
-
     conn.close()
 
-    await ctx.send(
-        embed=make_embed(
-            f"🎪 {title}",
-            description,
-            COLORS["magic"]
-        )
+    embed = discord.Embed(
+        title="🏠 تم تعيين المنزل",
+        color=0xD4AF37
+    )
+
+    embed.add_field(
+        name="👤 العضو",
+        value=member.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏠 المنزل",
+        value=(
+            f"{HOUSE_ROLES[selected_house]} "
+            f"**{selected_house}**"
+        ),
+        inline=False
+    )
+
+    apply_signature(embed)
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
     )
 
 
-@bot.command(name="الفعاليات")
-async def list_events(ctx):
+# =========================================================
+#                     أمر /تراجع
+# =========================================================
+
+@bot.tree.command(
+    name="تراجع",
+    description="التراجع عن آخر عملية نقاط"
+)
+async def undo_command(
+    interaction: discord.Interaction
+):
+
+    if not can_manage_cup(
+        interaction.user
+    ):
+
+        return await interaction.response.send_message(
+            "❌ ليس لديك صلاحية.",
+            ephemeral=True
+        )
+
+    row = undo_last_action(
+        interaction.guild.id
+    )
+
+    if not row:
+
+        return await interaction.response.send_message(
+            "❌ لا توجد عملية قابلة للتراجع.",
+            ephemeral=True
+        )
+
+    amount = row["amount"]
+
+    sign = (
+        "+"
+        if amount >= 0
+        else ""
+    )
+
+    embed = discord.Embed(
+        title="↩️ تم التراجع عن العملية",
+        color=0xFAA61A
+    )
+
+    embed.add_field(
+        name="🔖 العملية",
+        value=f"#{row['id']}",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🏠 المنزل",
+        value=(
+            f"{HOUSE_ROLES[row['house']]} "
+            f"{row['house']}"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="⭐ العملية الأصلية",
+        value=f"{sign}{amount:,} نقطة",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📝 السبب",
+        value=row["reason"],
+        inline=False
+    )
+
+    apply_signature(embed)
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+# =========================================================
+#                     أمر /السجل
+# =========================================================
+
+@bot.tree.command(
+    name="السجل",
+    description="عرض آخر عمليات كأس المنازل"
+)
+async def logs_command(
+    interaction: discord.Interaction
+):
+
+    await show_logs(
+        interaction
+    )
+
+
+# =========================================================
+#                     أمر /نقاط
+# =========================================================
+
+@bot.tree.command(
+    name="نقاط",
+    description="عرض نقاط منزل معين"
+)
+@app_commands.describe(
+    house="المنزل"
+)
+@app_commands.choices(
+    house=[
+        app_commands.Choice(
+            name="🦁 جريفندور",
+            value="جريفندور"
+        ),
+        app_commands.Choice(
+            name="🦡 هافلباف",
+            value="هافلباف"
+        ),
+        app_commands.Choice(
+            name="🦅 رافنكلو",
+            value="رافنكلو"
+        ),
+        app_commands.Choice(
+            name="🐍 سليذرين",
+            value="سليذرين"
+        )
+    ]
+)
+async def points_command(
+    interaction: discord.Interaction,
+    house: app_commands.Choice[str]
+):
+
+    ensure_guild(
+        interaction.guild.id
+    )
 
     conn = get_db()
-
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT title, description
+        SELECT points
 
-        FROM events
+        FROM house_scores
 
         WHERE guild_id = ?
-
-        AND active = 1
-
-        ORDER BY id DESC
-
-        LIMIT 10
+        AND house = ?
     """, (
-        ctx.guild.id,
+        interaction.guild.id,
+        house.value
     ))
 
-    rows = cur.fetchall()
+    row = cur.fetchone()
 
     conn.close()
 
-    embed = make_embed(
-        "🎪 الفعاليات السحرية",
-        "",
-        COLORS["gold"]
+    points = (
+        row["points"]
+        if row
+        else 0
     )
 
-    if not rows:
-
-        embed.description = (
-            "لا توجد فعاليات نشطة."
-        )
-
-    else:
-
-        for row in rows:
-
-            embed.add_field(
-                name=(
-                    f"🎪 {row['title']}"
-                ),
-
-                value=row["description"],
-
-                inline=False
-            )
-
-    await ctx.send(
-        embed=embed
+    embed = discord.Embed(
+        title="🏆 نقاط المنزل",
+        color=0xD4AF37
     )
 
-
-# =========================================================
-# 🧙 معلومات الطالب
-# =========================================================
-
-@bot.command(name="طالب")
-async def student_info(
-    ctx,
-    member: discord.Member = None
-):
-
-    member = (
-        member
-        or ctx.author
-    )
-
-    house = get_student_house(
-        ctx.guild.id,
-        member.id
-    )
-
-    if house in HOUSE_DATA:
-
-        info = HOUSE_DATA[
-            house
-        ]
-
-        text = (
-            f"{info['emoji']} **{house}**\n\n"
-            f"*{info['desc']}*"
-        )
-
-    else:
-
-        text = (
-            "🎩 لم يتم تنصيب هذا الساحر بعد."
-        )
-
-    await ctx.send(
-        embed=make_embed(
-            "🧙 سجل الطالب",
-
-            (
-                f"الساحر: "
-                f"{member.mention}\n\n"
-                f"{text}"
-            ),
-
-            COLORS["blue"]
-        )
-    )
-
-
-# =========================================================
-# 📖 المساعدة
-# =========================================================
-
-@bot.command(name="مساعدة")
-async def help_command(ctx):
-
-    embed = make_embed(
-        "📖 الأنظمة السحرية",
-
-        (
-            "### ⚔️ المبارزات\n"
-            "`!مبارزة @عضو`\n"
-            "`!سجل-المبارزات`\n"
-            "`!احصائيات`\n"
-            "`!ترتيب-المبارزين`\n\n"
-
-            "### 🏆 كأس المنازل\n"
-            "`!قبعة-التنسيق`\n"
-            "`!الكأس`\n"
-            "`!إضافة-نقاط ID عدد السبب`\n"
-            "`!خصم-نقاط البيت عدد السبب`\n"
-            "`!ترتيب-الطلاب`\n"
-            "`!السجل`\n"
-            "`!تراجع`\n\n"
-
-            "### ⚔️ الغارات\n"
-            "`!بدء-الغارة`\n"
-            "`!حالة-الغارة`\n"
-            "`!إيقاف-الغارة`\n\n"
-
-            "### 🎪 الفعاليات\n"
-            "`!فعالية العنوان الوصف`\n"
-            "`!الفعاليات`\n\n"
-
-            "### 🧙 الطلاب\n"
-            "`!طالب`"
+    embed.add_field(
+        name="🏠 المنزل",
+        value=(
+            f"{HOUSE_ROLES[house.value]} "
+            f"**{house.value}**"
         ),
-
-        COLORS["magic"]
+        inline=False
     )
 
-    await ctx.send(
+    embed.add_field(
+        name="⭐ النقاط",
+        value=f"**{points:,}**",
+        inline=False
+    )
+
+    apply_signature(embed)
+
+    await interaction.response.send_message(
         embed=embed
     )
 
 
 # =========================================================
-# ❌ أخطاء الأوامر
-# =========================================================
-
-@bot.event
-async def on_command_error(
-    ctx,
-    error
-):
-
-    if isinstance(
-        error,
-        commands.CommandNotFound
-    ):
-
-        return
-
-    if isinstance(
-        error,
-        commands.MissingPermissions
-    ):
-
-        return await ctx.send(
-            "❌ لا تملك الصلاحيات المطلوبة."
-        )
-
-    if isinstance(
-        error,
-        commands.MemberNotFound
-    ):
-
-        return await ctx.send(
-            "❌ لم أتمكن من العثور على العضو."
-        )
-
-    if isinstance(
-        error,
-        commands.MissingRequiredArgument
-    ):
-
-        return await ctx.send(
-            "❌ هناك معلومات ناقصة في الأمر."
-        )
-
-    print(
-        f"[ERROR] {error}"
-    )
-
-
-# =========================================================
-# 🟢 جاهزية البوت
+#                     تشغيل البوت
 # =========================================================
 
 @bot.event
@@ -2959,68 +1507,35 @@ async def on_ready():
 
     init_db()
 
-    for guild in bot.guilds:
-
-        ensure_guild(
-            guild.id
-        )
+    bot.add_view(
+        CupView()
+    )
 
     try:
 
         synced = await bot.tree.sync()
 
         print(
-            f"🪄 تمت مزامنة "
-            f"{len(synced)} أوامر Slash."
+            f"تمت مزامنة "
+            f"{len(synced)} أمر Slash."
         )
 
     except Exception as error:
 
         print(
-            f"⚠️ خطأ في Slash Commands: "
-            f"{error}"
+            "خطأ أثناء مزامنة الأوامر:",
+            error
         )
 
     print(
-        "━━━━━━━━━━━━━━━━━━━━━━━━"
-    )
-
-    print(
-        f"🪄 البوت: {bot.user}"
-    )
-
-    print(
-        f"🏰 السيرفرات: {len(bot.guilds)}"
-    )
-
-    print(
-        "⚔️ المبارزات: ON"
-    )
-
-    print(
-        "🏆 كأس المنازل: ON"
-    )
-
-    print(
-        "🛡️ الغارات: ON"
-    )
-
-    print(
-        "🎪 الفعاليات: ON"
-    )
-
-    print(
-        "🌐 Dashboard: خارجي"
-    )
-
-    print(
-        "━━━━━━━━━━━━━━━━━━━━━━━━"
+        f"🏆 تم تشغيل كأس المنازل "
+        f"بواسطة {bot.user}"
     )
 
 
 @bot.event
 async def on_guild_join(
-    guild
+    guild: discord.Guild
 ):
 
     ensure_guild(
@@ -3029,22 +1544,17 @@ async def on_guild_join(
 
 
 # =========================================================
-# 🚀 التشغيل
+#                     بدء التشغيل
 # =========================================================
 
 if __name__ == "__main__":
 
-    if not TOKEN:
+    if TOKEN == "PUT_YOUR_BOT_TOKEN_HERE":
 
         print(
-            "❌ لم يتم العثور على BOT_TOKEN "
-            "أو DISCORD_TOKEN."
+            "❌ لم يتم وضع توكن البوت."
         )
 
-        raise SystemExit(1)
+    else:
 
-    init_db()
-
-    bot.run(
-        TOKEN
-    )
+        bot.run(TOKEN)
