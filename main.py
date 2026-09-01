@@ -555,6 +555,10 @@ async def sorting_hat(ctx):
 # نظام المبارزات والتعويذات (نظام المانا المحدث 100)
 # =========================================================
 
+# =========================================================
+# نظام المبارزات والتعويذات المتكامل (كامل ونظيف)
+# =========================================================
+
 SPELLS = {
     "Expelliarmus": {"cost": 15, "damage": 25, "heal": 0, "desc": "تعويذة تجريد الخصم من سلاحه بضربة خاطفة."},
     "Stupefy": {"cost": 20, "damage": 35, "heal": 0, "desc": "تعويذة الإقعاد لتخدير الخصم وإلحاق ضرر كبير."},
@@ -607,8 +611,8 @@ class DuelSession:
         self.guild_id = guild_id
         self.p1_hp = MAX_HP
         self.p2_hp = MAX_HP
-        self.p1_mana = 100
-        self.p2_mana = 100
+        self.p1_mana = MAX_MP
+        self.p2_mana = MAX_MP
         self.p1_choice = None
         self.p2_choice = None
         self.round_count = 0
@@ -618,21 +622,8 @@ class DuelSession:
         s1 = SPELLS[self.p1_choice]
         s2 = SPELLS[self.p2_choice]
 
-        # خصم التكلفة + إضافة 50% من قيمة الاستهلاك
-        regen_1 = int(s1["cost"] * 0.5)
-        regen_2 = int(s2["cost"] * 0.5)
-
-        self.p1_mana = max(0, self.p1_mana - s1["cost"] + regen_1)
-        self.p2_mana = max(0, self.p2_mana - s2["cost"] + regen_2)
-
-        # كل جولتين يتم إضافة 25% من القيمة الكلية للمانا (25 نقطة)
-        if self.round_count % 2 == 0:
-            bonus_regen = int(100 * 0.25)
-            self.p1_mana = min(100, self.p1_mana + bonus_regen)
-            self.p2_mana = min(100, self.p2_mana + bonus_regen)
-
-        self.p1_mana = max(0, min(100, self.p1_mana))
-        self.p2_mana = max(0, min(100, self.p2_mana))
+        self.p1_mana = min(MAX_MP, self.p1_mana - s1["cost"] + 20)
+        self.p2_mana = min(MAX_MP, self.p2_mana - s2["cost"] + 20)
 
         p1_net_damage = max(0, s1["damage"] - s2["heal"])
         p2_net_damage = max(0, s2["damage"] - s1["heal"])
@@ -644,8 +635,8 @@ class DuelSession:
             f"⚔️ **نتيجة الجولة #{self.round_count}:**\n\n"
             f"🧙 {self.p1.mention} استخدم **{self.p1_choice}** (ضرر: {s1['damage']} | علاج: {s1['heal']})\n"
             f"🧙 {self.p2.mention} استخدم **{self.p2_choice}** (ضرر: {s2['damage']} | علاج: {s2['heal']})\n\n"
-            f"❤️ **{self.p1.name}:** HP: {self.p1_hp}/{MAX_HP} | Mana: {self.p1_mana}/100\n"
-            f"❤️ **{self.p2.name}:** HP: {self.p2_hp}/{MAX_HP} | Mana: {self.p2_mana}/100"
+            f"❤️ **{self.p1.name}:** HP: {self.p1_hp}/{MAX_HP} | Mana: {self.p1_mana}/{MAX_MP}\n"
+            f"❤️ **{self.p2.name}:** HP: {self.p2_hp}/{MAX_HP} | Mana: {self.p2_mana}/{MAX_MP}"
         )
 
         self.p1_choice = None
@@ -711,6 +702,46 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.Member)
     )
     view = DuelView(session)
     await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="ترتيب_المبارزين", description="عرض لوحة شرف أفضل المبارزين في السيرفر")
+async def slash_dueler_leaderboard(interaction: discord.Interaction):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, wins, losses, (wins + losses) as total
+        FROM duel_stats
+        WHERE guild_id = ?
+        ORDER BY wins DESC
+        LIMIT 10
+    """, (interaction.guild.id,))
+    rows = cur.fetchall()
+    conn.close()
+
+    embed = make_embed("🏆 لوحة شرف المبارزين الأبطال", "ترتيب السحرة الأقوى في المبارزات", COLORS["gold"])
+    if not rows:
+        embed.description = "لا توجد أي مبارزات مسجلة حتى الآن."
+    else:
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for index, row in enumerate(rows):
+            medal = medals[index] if index < len(medals) else f"{index + 1}️⃣"
+            embed.add_field(
+                name=f"{medal} الساحر: <@{row['user_id']}>",
+                value=f"🏆 انتصارات: **{row['wins']}** | 💀 خسائر: **{row['losses']}** | ⚔️ إجمالي: **{row['total']}**",
+                inline=False
+            )
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="تعويذة", description="استعراض قائمة التعويذات السحرية وتفاصيلها المعتمدة")
+async def slash_spells_list(interaction: discord.Interaction):
+    embed = make_embed("🪄 سجل التعويذات السحرية المعتمدة", "قائمة التعويذات المتاحة للاستخدام في المبارزات", COLORS["magic"])
+    for name, data in SPELLS.items():
+        embed.add_field(
+            name=f"✨ {name}",
+            value=f"🔮 تكلفة المانا: **{data['cost']}** | ⚡ الضرر: **{data['damage']}** | 💖 العلاج: **{data['heal']}**\n📝 *{data['desc']}*",
+            inline=False
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 
 # =========================================================
