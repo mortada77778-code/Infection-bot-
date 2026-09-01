@@ -552,7 +552,7 @@ async def sorting_hat(ctx):
 
 
 # =========================================================
-# ثامناً وتاسعاً وعاشراً والحادي عشر: نظام المبارزات والتعويذات المتكامل
+# ثامناً وتاسعاً وعاشراً والحادي عشر: نظام المبارزات والتعويذات
 # =========================================================
 
 SPELLS = {
@@ -740,7 +740,7 @@ async def slash_spells_list(interaction: discord.Interaction):
 
 
 # =========================================================
-# الثاني عشر: إنشاء وعرض سجل الفعاليات (مع نظام الصفحات الآمن)
+# الثاني عشر: نظام الفعاليات المتكامل (إنشاء وعرض بصفحات آمنة)
 # =========================================================
 
 class AddEventModal(discord.ui.Modal, title="✨ إنشاء فعالية سحرية جديدة"):
@@ -819,6 +819,8 @@ class EventsPaginationView(discord.ui.View):
         page_items = self.events_list[start:end]
 
         for item in page_items:
+            if not isinstance(item, dict):
+                continue
             title = item.get("title", "فعالية سحرية")
             user_id = item.get("user_id")
             user_mention = f"<@{user_id}>" if user_id else item.get("organizer", "مجهول")
@@ -857,15 +859,18 @@ class EventsPaginationView(discord.ui.View):
 
 @bot.tree.command(name="سجل_الفعاليات", description="عرض سجل فعاليات كأس المنازل بنظام الصفحات الآمن")
 async def slash_events_log(interaction: discord.Interaction):
-    raw_data = load_json_file(EVENTS_FILE)
-    events_list = []
-    if isinstance(raw_data, dict):
-        events_list = list(raw_data.values())
-    elif isinstance(raw_data, list):
-        events_list = raw_data
+    try:
+        raw_data = load_json_file(EVENTS_FILE)
+        events_list = []
+        if isinstance(raw_data, dict):
+            events_list = list(raw_data.values())
+        elif isinstance(raw_data, list):
+            events_list = raw_data
 
-    view = EventsPaginationView(events_list, interaction.user.id)
-    await interaction.response.send_message(embed=view.create_embed(), view=view, ephemeral=True)
+        view = EventsPaginationView(events_list, interaction.user.id)
+        await interaction.response.send_message(embed=view.create_embed(), view=view, ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ حدث خطأ أثناء عرض السجل: {e}", ephemeral=True)
 
 
 # =========================================================
