@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import random
 import os
@@ -252,7 +252,7 @@ def student_already_sorted(guild_id: int, user_id: int):
 
 
 # =========================================================
-# أولاً وثالثاً: أوامر وعروض كأس المنازل وإضافة النقاط
+# أوامر وعروض كأس المنازل وإضافة النقاط
 # =========================================================
 
 @bot.command(name="الكأس")
@@ -304,7 +304,7 @@ async def logs_cmd(ctx):
 
 
 # =========================================================
-# ثانياً ورابعاً: استمارات إضافة النقاط (/إضافة-نقاط و /نقاط_البيت)
+# استمارات إضافة النقاط (/إضافة-نقاط و /نقاط_البيت)
 # =========================================================
 
 class AddPointsModal(discord.ui.Modal, title="✨ استمارة إضافة نقاط السحر"):
@@ -406,7 +406,7 @@ async def slash_house_points(interaction: discord.Interaction):
 
 
 # =========================================================
-# سابعاً: ترتيب الطلاب (/ترتيب_الطلاب) بالـ Mentions الحقيقية
+# ترتيب الطلاب (/ترتيب_الطلاب) بالـ Mentions الحقيقية
 # =========================================================
 
 @bot.tree.command(name="ترتيب_الطلاب", description="عرض لوحة شرف الطلاب الأعلى نقاطاً بالـ Mentions الحقيقية")
@@ -441,7 +441,7 @@ async def slash_students_leaderboard(interaction: discord.Interaction):
 
 
 # =========================================================
-# سادساً: قبعة التنسيق التفاعلية (4 أسئلة متسلسلة بأمان تام)
+# قبعة التنسيق التفاعلية (4 أسئلة متسلسلة بأمان تام)
 # =========================================================
 
 HOUSES = {
@@ -552,7 +552,7 @@ async def sorting_hat(ctx):
 
 
 # =========================================================
-# ثامناً وتاسعاً وعاشراً والحادي عشر: نظام المبارزات والتعويذات
+# نظام المبارزات والتعويذات
 # =========================================================
 
 SPELLS = {
@@ -740,7 +740,7 @@ async def slash_spells_list(interaction: discord.Interaction):
 
 
 # =========================================================
-# الثاني عشر: نظام الفعاليات المتكامل (إنشاء وعرض بصفحات آمنة)
+# نظام الفعاليات المتكامل (إنشاء وعرض بصفحات آمنة)
 # =========================================================
 
 class AddEventModal(discord.ui.Modal, title="✨ إنشاء فعالية سحرية جديدة"):
@@ -791,36 +791,23 @@ async def slash_add_event(interaction: discord.Interaction):
     await interaction.response.send_modal(AddEventModal())
 
 class EventsPaginationView(discord.ui.View):
-    def __init__(self, events_data):
+    def __init__(self, events_list, author_id):
         super().__init__(timeout=180)
-        self.events_data = events_data
+        self.events_list = events_list
+        self.author_id = author_id
         self.current_page = 0
+        self.per_page = 3
+        self.max_pages = max(1, (len(events_list) + self.per_page - 1) // self.per_page)
         self.update_buttons()
 
     def update_buttons(self):
-        # تفعيل أو تعطيل الأزرار حسب الصفحة الحالية
-        pass
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page >= self.max_pages - 1
 
-    @discord.ui.button(label="◀️ السابق", style=discord.ButtonStyle.secondary)
-    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page > 0:
-            self.current_page -= 1
-            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
-        else:
-            await interaction.response.send_message("أنت في الصفحة الأولى بالفعل.", ephemeral=True)
-
-    @discord.ui.button(label="التالي ▶️", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page < len(self.events_data) - 1:
-            self.current_page += 1
-            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
-        else:
-            await interaction.response.send_message("أنت في الصفحة الأخيرة بالفعل.", ephemeral=True)
-
-    def get_current_embed(self):
-        # دالة ترجع الـ Embed الخاص بالصفحة الحالية
-        return make_embed("سجل الفعاليات", f"صفحة رقم {self.current_page + 1}")
-
+    def create_embed(self):
+        embed = make_embed(
+            "📚 السجل الرسمي للفعاليات السحرية",
+            f"صفحة **{self.current_page + 1}** من **{self.max_pages}**",
             COLORS["blue"]
         )
         if not self.events_list:
@@ -848,7 +835,7 @@ class EventsPaginationView(discord.ui.View):
             )
         return embed
 
-    @discord.ui.Button(label="◀️ السابق", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="◀️ السابق", style=discord.ButtonStyle.secondary)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author_id:
             return await interaction.response.send_message("❌ هذه الأزرار ليست لك.", ephemeral=True)
@@ -859,7 +846,7 @@ class EventsPaginationView(discord.ui.View):
         else:
             await interaction.response.defer()
 
-    @discord.ui.Button(label="▶️ التالي", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="▶️ التالي", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author_id:
             return await interaction.response.send_message("❌ هذه الأزرار ليست لك.", ephemeral=True)
@@ -887,7 +874,7 @@ async def slash_events_log(interaction: discord.Interaction):
 
 
 # =========================================================
-# الرابع عشر والخامس عشر: نظام الغارات والمستشفى (Raid & Hospital)
+# نظام الغارات والمستشفى (Raid & Hospital)
 # =========================================================
 
 @bot.command(name="غارة")
