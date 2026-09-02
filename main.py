@@ -2151,7 +2151,7 @@ async def delete_event(
 # =========================================================
 
 MAX_HP = 200
-MAX_MP = 100
+MAX_MP = 400
 
 DUEL_TIMEOUT = 180
 
