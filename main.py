@@ -5,7 +5,6 @@ import random
 import os
 import json
 import sqlite3
-import asyncio
 from datetime import datetime
 
 
@@ -78,6 +77,7 @@ HOUSE_ALIASES = {
     "hufflepuff": "هافلباف",
 
     "رافنكلو": "رافنكلو",
+    "رافينكلو": "رافنكلو",
     "ravenclaw": "رافنكلو",
 
     "سليذرين": "سليذرين",
@@ -100,7 +100,7 @@ HOUSES = {
         "desc": "الطموح والدهاء والقيادة."
     },
 
-    "رافينكلو": {
+    "رافنكلو": {
         "name": "رافنكلو (Ravenclaw)",
         "emoji": "🦅",
         "color": 0x0E1A40,
@@ -115,6 +115,10 @@ HOUSES = {
     }
 }
 
+
+# =========================================================
+# 🗄️ قاعدة البيانات
+# =========================================================
 
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -188,17 +192,25 @@ def can_manage_cup(member: discord.Member):
         "Cup Manager"
     }
 
-    return any(role.name in allowed_roles for role in member.roles)
+    return any(
+        role.name in allowed_roles
+        for role in member.roles
+    )
 
 
 def normalize_house(name):
     if not name:
         return None
 
-    return HOUSE_ALIASES.get(name.strip().lower())
+    return HOUSE_ALIASES.get(
+        name.strip().lower()
+    )
 
 
-def house_from_database(guild_id: int, user_id: int):
+def house_from_database(
+    guild_id: int,
+    user_id: int
+):
     conn = get_db()
     cur = conn.cursor()
 
@@ -206,7 +218,10 @@ def house_from_database(guild_id: int, user_id: int):
         SELECT house
         FROM members_houses
         WHERE guild_id = ? AND user_id = ?
-    """, (guild_id, user_id))
+    """, (
+        guild_id,
+        user_id
+    ))
 
     row = cur.fetchone()
     conn.close()
@@ -231,7 +246,11 @@ def add_points(
         UPDATE house_scores
         SET points = points + ?
         WHERE guild_id = ? AND house = ?
-    """, (amount, guild_id, house))
+    """, (
+        amount,
+        guild_id,
+        house
+    ))
 
     cur.execute("""
         INSERT INTO point_logs
@@ -253,7 +272,9 @@ def add_points(
         user_id,
         moderator_id,
         reason,
-        datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        datetime.utcnow().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
     ))
 
     log_id = cur.lastrowid
@@ -262,7 +283,10 @@ def add_points(
         SELECT points
         FROM house_scores
         WHERE guild_id = ? AND house = ?
-    """, (guild_id, house))
+    """, (
+        guild_id,
+        house
+    ))
 
     row = cur.fetchone()
     new_points = row["points"]
@@ -274,13 +298,15 @@ def add_points(
 
 
 def undo_last_action(guild_id: int):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT *
         FROM point_logs
-        WHERE guild_id = ? AND undone = 0
+        WHERE guild_id = ?
+        AND undone = 0
         ORDER BY id DESC
         LIMIT 1
     """, (guild_id,))
@@ -294,7 +320,8 @@ def undo_last_action(guild_id: int):
     cur.execute("""
         UPDATE house_scores
         SET points = points - ?
-        WHERE guild_id = ? AND house = ?
+        WHERE guild_id = ?
+        AND house = ?
     """, (
         row["amount"],
         guild_id,
@@ -314,6 +341,7 @@ def undo_last_action(guild_id: int):
 
 
 def get_scores(guild_id: int):
+
     ensure_guild(guild_id)
 
     conn = get_db()
@@ -327,12 +355,14 @@ def get_scores(guild_id: int):
     """, (guild_id,))
 
     rows = cur.fetchall()
+
     conn.close()
 
     return rows
 
 
 def create_cup_embed(guild: discord.Guild):
+
     rows = get_scores(guild.id)
 
     medals = [
@@ -353,10 +383,15 @@ def create_cup_embed(guild: discord.Guild):
     )
 
     for index, row in enumerate(rows):
+
         house = row["house"]
         points = row["points"]
 
-        emoji = HOUSE_ROLES.get(house, "✨")
+        emoji = HOUSE_ROLES.get(
+            house,
+            "✨"
+        )
+
         medal = (
             medals[index]
             if index < len(medals)
@@ -369,7 +404,9 @@ def create_cup_embed(guild: discord.Guild):
             inline=False
         )
 
-    embed.set_footer(text=AUTHOR_SIGNATURE)
+    embed.set_footer(
+        text=AUTHOR_SIGNATURE
+    )
 
     return embed
 
@@ -379,30 +416,44 @@ def create_cup_embed(guild: discord.Guild):
 # =========================================================
 
 def load_json_file(filename):
+
     if not os.path.exists(filename):
         return {}
 
     try:
+
         with open(
             filename,
             "r",
             encoding="utf-8"
         ) as f:
+
             data = json.load(f)
 
-        return data if isinstance(data, dict) else {}
+        return data
 
-    except Exception:
+    except Exception as e:
+
+        print(
+            f"JSON load error ({filename}): {e}"
+        )
+
         return {}
 
 
-def save_json_file(filename, data):
+def save_json_file(
+    filename,
+    data
+):
+
     try:
+
         with open(
             filename,
             "w",
             encoding="utf-8"
         ) as f:
+
             json.dump(
                 data,
                 f,
@@ -410,8 +461,15 @@ def save_json_file(filename, data):
                 indent=4
             )
 
+        return True
+
     except Exception as e:
-        print(f"JSON save error: {e}")
+
+        print(
+            f"JSON save error ({filename}): {e}"
+        )
+
+        return False
 
 
 # =========================================================
@@ -424,7 +482,13 @@ def assign_student_house(
     house_name,
     guild_id=None
 ):
-    db = load_json_file(STUDENTS_FILE)
+
+    db = load_json_file(
+        STUDENTS_FILE
+    )
+
+    if not isinstance(db, dict):
+        db = {}
 
     db[str(user_id)] = {
         "name": username,
@@ -437,6 +501,7 @@ def assign_student_house(
     )
 
     if guild_id:
+
         conn = get_db()
         cur = conn.cursor()
 
@@ -462,13 +527,15 @@ def student_already_sorted(
     guild_id: int,
     user_id: int
 ):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT house
         FROM members_houses
-        WHERE guild_id = ? AND user_id = ?
+        WHERE guild_id = ?
+        AND user_id = ?
     """, (
         guild_id,
         user_id
@@ -485,6 +552,12 @@ def student_already_sorted(
         STUDENTS_FILE
     )
 
+    if not isinstance(
+        students_db,
+        dict
+    ):
+        return False
+
     return str(user_id) in students_db
 
 
@@ -492,15 +565,25 @@ def student_already_sorted(
 # 🎩 قبعة التنسيق
 # =========================================================
 
-class SortingHatView(discord.ui.View):
+class SortingHatView(
+    discord.ui.View
+):
 
-    def __init__(self, user, guild_id):
-        super().__init__(timeout=120)
+    def __init__(
+        self,
+        user,
+        guild_id
+    ):
+
+        super().__init__(
+            timeout=120
+        )
 
         self.user = user
         self.guild_id = guild_id
 
         self.current_question = 0
+
         self.scores = {
             "جريفندور": 0,
             "سليذرين": 0,
@@ -557,6 +640,7 @@ class SortingHatView(discord.ui.View):
 
 
     def update_buttons(self):
+
         self.clear_items()
 
         question = self.questions[
@@ -564,6 +648,7 @@ class SortingHatView(discord.ui.View):
         ]
 
         for text, house in question["options"]:
+
             self.add_item(
                 SortingOptionButton(
                     text,
@@ -593,13 +678,16 @@ class SortingHatView(discord.ui.View):
         )
 
 
-class SortingOptionButton(discord.ui.Button):
+class SortingOptionButton(
+    discord.ui.Button
+):
 
     def __init__(
         self,
         label,
         house
     ):
+
         super().__init__(
             label=label,
             style=discord.ButtonStyle.secondary
@@ -616,6 +704,7 @@ class SortingOptionButton(discord.ui.Button):
         view: SortingHatView = self.view
 
         if interaction.user.id != view.user.id:
+
             return await interaction.response.send_message(
                 "❌ هذه ليست قبعة التنسيق الخاصة بك!",
                 ephemeral=True
@@ -630,24 +719,20 @@ class SortingOptionButton(discord.ui.Button):
 
         view.current_question += 1
 
-        # ---------------------------------------------
-        # لم تنته الأسئلة
-        # ---------------------------------------------
-
-        if view.current_question < len(view.questions):
+        if view.current_question < len(
+            view.questions
+        ):
 
             view.update_buttons()
 
-            embed = view.create_question_embed()
-
             return await interaction.response.edit_message(
-                embed=embed,
+                embed=view.create_question_embed(),
                 view=view
             )
 
-        # ---------------------------------------------
-        # انتهت الأسئلة
-        # ---------------------------------------------
+        # -----------------------------------------
+        # النهاية
+        # -----------------------------------------
 
         view.finished = True
 
@@ -665,7 +750,6 @@ class SortingOptionButton(discord.ui.Button):
             tied_houses
         )
 
-        # التسجيل يتم هنا فقط
         assign_student_house(
             view.user.id,
             view.user.name,
@@ -697,17 +781,9 @@ class SortingOptionButton(discord.ui.Button):
         view.stop()
 
 
-    async def on_error(
-        self,
-        interaction,
-        error
-    ):
-        print(
-            f"Sorting button error: {error}"
-        )
-
-
-@bot.command(name="قبعة-التنسيق")
+@bot.command(
+    name="قبعة-التنسيق"
+)
 async def sorting_hat(ctx):
 
     if not ctx.guild:
@@ -717,6 +793,7 @@ async def sorting_hat(ctx):
         ctx.guild.id,
         ctx.author.id
     ):
+
         return await ctx.send(
             embed=make_embed(
                 "⚠️ عذراً",
@@ -753,13 +830,17 @@ async def sorting_hat(ctx):
     )
 
 
-class StartSortingButton(discord.ui.Button):
+class StartSortingButton(
+    discord.ui.Button
+):
 
     def __init__(self):
+
         super().__init__(
             label="🎩 ابدأ اختبار التنسيق",
             style=discord.ButtonStyle.primary
         )
+
 
     async def callback(
         self,
@@ -769,6 +850,7 @@ class StartSortingButton(discord.ui.Button):
         view: SortingHatView = self.view
 
         if interaction.user.id != view.user.id:
+
             return await interaction.response.send_message(
                 "❌ هذا الاختبار ليس لك!",
                 ephemeral=True
@@ -822,14 +904,14 @@ class AddPointsModal(
         points_text = self.points_input.value.strip()
         reason = self.reason_input.value.strip()
 
-        target_member = None
-
         cleaned_id = "".join(
             filter(
                 str.isdigit,
                 student_text
             )
         )
+
+        target_member = None
 
         if cleaned_id.isdigit():
 
@@ -838,6 +920,7 @@ class AddPointsModal(
             )
 
             if not target_member:
+
                 try:
                     target_member = await interaction.guild.fetch_member(
                         int(cleaned_id)
@@ -846,18 +929,21 @@ class AddPointsModal(
                     pass
 
         if not target_member:
+
             return await interaction.response.send_message(
                 "❌ لم أتمكن من العثور على الساحر!",
                 ephemeral=True
             )
 
         try:
+
             points = int(points_text)
 
             if points <= 0:
                 raise ValueError
 
         except ValueError:
+
             return await interaction.response.send_message(
                 "❌ عدد النقاط يجب أن يكون رقماً صحيحاً أكبر من صفر.",
                 ephemeral=True
@@ -874,16 +960,22 @@ class AddPointsModal(
                 STUDENTS_FILE
             )
 
-            user_data = students_db.get(
-                str(target_member.id)
-            )
+            if isinstance(
+                students_db,
+                dict
+            ):
 
-            if user_data:
-                house = user_data.get(
-                    "house"
+                user_data = students_db.get(
+                    str(target_member.id)
                 )
 
+                if user_data:
+                    house = user_data.get(
+                        "house"
+                    )
+
         if not house:
+
             return await interaction.response.send_message(
                 f"❌ {target_member.mention} لم يتم تنصيبه في منزل بعد!",
                 ephemeral=True
@@ -932,6 +1024,7 @@ async def slash_add_points_form(
     if not can_manage_cup(
         interaction.user
     ):
+
         return await interaction.response.send_message(
             "❌ ليس لديك صلاحية لإدارة كأس المنازل.",
             ephemeral=True
@@ -990,12 +1083,14 @@ class HousePointsModal(
         )
 
         if not selected_house:
+
             return await interaction.response.send_message(
                 "❌ اسم المنزل غير صحيح!",
                 ephemeral=True
             )
 
         try:
+
             points = int(
                 self.points_input.value
             )
@@ -1004,6 +1099,7 @@ class HousePointsModal(
                 raise ValueError
 
         except ValueError:
+
             return await interaction.response.send_message(
                 "❌ عدد النقاط غير صحيح.",
                 ephemeral=True
@@ -1027,17 +1123,13 @@ class HousePointsModal(
         ):
 
             final_points = -points
-
             title = "⚠️ تم خصم النقاط"
-
             color = COLORS["danger"]
 
         else:
 
             final_points = points
-
             title = "✨ تم إضافة النقاط"
-
             color = COLORS["success"]
 
         _, new_score = add_points(
@@ -1081,6 +1173,7 @@ async def slash_house_points(
     if not can_manage_cup(
         interaction.user
     ):
+
         return await interaction.response.send_message(
             "❌ ليس لديك صلاحية لإدارة كأس المنازل.",
             ephemeral=True
@@ -1111,18 +1204,13 @@ async def slash_students_leaderboard(
             user_id,
             house,
             SUM(amount) AS total_points
-
         FROM point_logs
-
         WHERE guild_id = ?
         AND user_id IS NOT NULL
         AND undone = 0
         AND amount > 0
-
         GROUP BY user_id
-
         ORDER BY total_points DESC
-
         LIMIT 10
     """, (
         interaction.guild.id,
@@ -1139,6 +1227,7 @@ async def slash_students_leaderboard(
     )
 
     if not rows:
+
         embed.description = (
             "❌ لا توجد نقاط مسجلة بأسماء طلاب حتى الآن."
         )
@@ -1167,10 +1256,8 @@ async def slash_students_leaderboard(
             "✨"
         )
 
-        medal = medals[index]
-
         embed.add_field(
-            name=f"{medal} الساحر: <@{user_id}>",
+            name=f"{medals[index]} الساحر: <@{user_id}>",
             value=(
                 f"🏠 {emoji} **{house}**\n"
                 f"⭐ **{points:,} نقطة**"
@@ -1214,6 +1301,7 @@ async def undo_cmd(ctx):
     if not can_manage_cup(
         ctx.author
     ):
+
         return await ctx.send(
             "❌ ليس لديك صلاحية.",
             delete_after=10
@@ -1224,6 +1312,7 @@ async def undo_cmd(ctx):
     )
 
     if not row:
+
         return await ctx.send(
             "❌ لا توجد عملية قابلة للتراجع.",
             delete_after=10
@@ -1292,6 +1381,772 @@ async def logs_cmd(ctx):
 
 
 # =========================================================
+# 🎪 نظام فعاليات كأس المنازل
+# =========================================================
+
+def load_events():
+
+    if not os.path.exists(
+        EVENTS_FILE
+    ):
+        return []
+
+    try:
+
+        with open(
+            EVENTS_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            data = json.load(f)
+
+    except Exception as e:
+
+        print(
+            f"Events load error: {e}"
+        )
+
+        return []
+
+    # -----------------------------------------
+    # إذا كان الملف قائمة مباشرة
+    # -----------------------------------------
+
+    if isinstance(
+        data,
+        list
+    ):
+
+        return [
+            event
+            for event in data
+            if isinstance(event, dict)
+        ]
+
+    # -----------------------------------------
+    # إذا كان Dictionary
+    # -----------------------------------------
+
+    if isinstance(
+        data,
+        dict
+    ):
+
+        if isinstance(
+            data.get("events"),
+            list
+        ):
+
+            return [
+                event
+                for event in data["events"]
+                if isinstance(event, dict)
+            ]
+
+        # دعم ملفات الأحداث القديمة
+        events = []
+
+        for key, value in data.items():
+
+            if isinstance(
+                value,
+                dict
+            ):
+
+                event = dict(value)
+
+                if not event.get("id"):
+                    event["id"] = key
+
+                events.append(event)
+
+        return events
+
+    return []
+
+
+def save_events(events):
+
+    return save_json_file(
+        EVENTS_FILE,
+        events
+    )
+
+
+def event_value(
+    event,
+    *keys,
+    default="غير محدد"
+):
+
+    for key in keys:
+
+        value = event.get(
+            key
+        )
+
+        if value is not None:
+
+            value = str(
+                value
+            ).strip()
+
+            if value:
+                return value
+
+    return default
+
+
+def create_event_id(
+    events
+):
+
+    highest = 0
+
+    for event in events:
+
+        try:
+
+            event_id = int(
+                event.get(
+                    "id",
+                    0
+                )
+            )
+
+            highest = max(
+                highest,
+                event_id
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+            continue
+
+    return highest + 1
+
+
+# =========================================================
+# 📝 استمارة تسجيل فعالية
+# =========================================================
+
+class EventRegistrationModal(
+    discord.ui.Modal,
+    title="🎪 تسجيل فعالية جديدة"
+):
+
+    event_name = discord.ui.TextInput(
+        label="اسم الفعالية",
+        placeholder="مثال: بطولة كأس المنازل الكبرى",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100
+    )
+
+    event_description = discord.ui.TextInput(
+        label="وصف الفعالية",
+        placeholder="اكتب وصفاً مختصراً عن الفعالية...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=1000
+    )
+
+    event_result = discord.ui.TextInput(
+        label="النتيجة / الفائز",
+        placeholder="مثال: فاز منزل هافلباف",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=300
+    )
+
+    event_date = discord.ui.TextInput(
+        label="تاريخ الفعالية",
+        placeholder="مثال: 2026-09-02",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=50
+    )
+
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not interaction.guild:
+
+            return await interaction.response.send_message(
+                "❌ لا يمكن تسجيل فعالية خارج السيرفر.",
+                ephemeral=True
+            )
+
+        if not can_manage_cup(
+            interaction.user
+        ):
+
+            return await interaction.response.send_message(
+                "❌ ليس لديك صلاحية تسجيل فعاليات كأس المنازل.",
+                ephemeral=True
+            )
+
+        events = load_events()
+
+        new_id = create_event_id(
+            events
+        )
+
+        date_value = (
+            self.event_date.value.strip()
+            if self.event_date.value.strip()
+            else datetime.utcnow().strftime(
+                "%Y-%m-%d"
+            )
+        )
+
+        result_value = (
+            self.event_result.value.strip()
+            if self.event_result.value.strip()
+            else "لم يتم تسجيل النتيجة"
+        )
+
+        event = {
+            "id": new_id,
+            "guild_id": interaction.guild.id,
+            "name": self.event_name.value.strip(),
+            "description": self.event_description.value.strip(),
+            "result": result_value,
+            "date": date_value,
+            "created_by": interaction.user.id,
+            "created_at": datetime.utcnow().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        }
+
+        events.append(
+            event
+        )
+
+        if not save_events(
+            events
+        ):
+
+            return await interaction.response.send_message(
+                "❌ حدث خطأ أثناء حفظ الفعالية.",
+                ephemeral=True
+            )
+
+        embed = make_embed(
+            "🎪 تم تسجيل الفعالية",
+            (
+                f"🆔 **رقم الفعالية:** `{new_id}`\n"
+                f"📜 **الاسم:** {event['name']}\n\n"
+                f"📝 **الوصف:**\n{event['description']}\n\n"
+                f"🏆 **النتيجة:** {event['result']}\n"
+                f"📅 **التاريخ:** {event['date']}\n"
+                f"👤 **سجلها:** {interaction.user.mention}\n\n"
+                "ℹ️ **ملاحظة:** تسجيل الفعالية لا يضيف أي نقاط تلقائياً إلى كأس المنازل."
+            ),
+            COLORS["success"]
+        )
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+
+@bot.command(
+    name="تسجيل-فعالية"
+)
+async def register_event(
+    ctx
+):
+
+    if not ctx.guild:
+
+        return await ctx.send(
+            "❌ هذا الأمر يعمل داخل السيرفر فقط."
+        )
+
+    if not can_manage_cup(
+        ctx.author
+    ):
+
+        return await ctx.send(
+            "❌ ليس لديك صلاحية تسجيل فعاليات كأس المنازل.",
+            delete_after=10
+        )
+
+    await ctx.send_modal(
+        EventRegistrationModal()
+    )
+
+
+# =========================================================
+# 📜 واجهة سجل الفعاليات
+# =========================================================
+
+EVENTS_PER_PAGE = 5
+
+
+class EventHistoryView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        user,
+        events
+    ):
+
+        super().__init__(
+            timeout=180
+        )
+
+        self.user = user
+        self.events = events
+        self.page = 0
+
+        self.update_buttons()
+
+
+    @property
+    def total_pages(self):
+
+        return max(
+            1,
+            (
+                len(self.events)
+                + EVENTS_PER_PAGE
+                - 1
+            )
+            // EVENTS_PER_PAGE
+        )
+
+
+    def update_buttons(self):
+
+        self.previous_button.disabled = (
+            self.page <= 0
+        )
+
+        self.next_button.disabled = (
+            self.page >= self.total_pages - 1
+        )
+
+
+    def create_embed(self):
+
+        start = (
+            self.page
+            * EVENTS_PER_PAGE
+        )
+
+        end = start + EVENTS_PER_PAGE
+
+        page_events = self.events[
+            start:end
+        ]
+
+        embed = make_embed(
+            "📜 سجل فعاليات كأس المنازل",
+            (
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "🎪 **أرشيف الفعاليات المسجلة**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📖 الصفحة **{self.page + 1}** "
+                f"من **{self.total_pages}**"
+            ),
+            COLORS["blue"]
+        )
+
+        if not page_events:
+
+            embed.description += (
+                "\n\n❌ لا توجد فعاليات مسجلة."
+            )
+
+            return embed
+
+        for event in page_events:
+
+            event_id = event_value(
+                event,
+                "id",
+                "event_id",
+                default="?"
+            )
+
+            name = event_value(
+                event,
+                "name",
+                "title",
+                "event_name",
+                default="فعالية بدون اسم"
+            )
+
+            description = event_value(
+                event,
+                "description",
+                "details",
+                "desc",
+                default="لا يوجد وصف."
+            )
+
+            result = event_value(
+                event,
+                "result",
+                "winner",
+                "outcome",
+                default="لم يتم تسجيل النتيجة"
+            )
+
+            date = event_value(
+                event,
+                "date",
+                "event_date",
+                "created_at",
+                "time",
+                default="غير محدد"
+            )
+
+            # منع الحقل من تجاوز حد Discord
+            if len(description) > 700:
+                description = (
+                    description[:697]
+                    + "..."
+                )
+
+            if len(result) > 300:
+                result = (
+                    result[:297]
+                    + "..."
+                )
+
+            embed.add_field(
+                name=f"🎪 #{event_id} — {name}",
+                value=(
+                    f"📝 **الوصف:**\n"
+                    f"{description}\n\n"
+                    f"🏆 **النتيجة:** {result}\n"
+                    f"📅 **التاريخ:** {date}"
+                ),
+                inline=False
+            )
+
+        return embed
+
+
+    async def interaction_check(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if interaction.user.id != self.user.id:
+
+            await interaction.response.send_message(
+                "❌ هذا السجل تم فتحه بواسطة عضو آخر.",
+                ephemeral=True
+            )
+
+            return False
+
+        return True
+
+
+    @discord.ui.button(
+        label="السابق",
+        emoji="◀️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def previous_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if self.page > 0:
+            self.page -= 1
+
+        self.update_buttons()
+
+        await interaction.response.edit_message(
+            embed=self.create_embed(),
+            view=self
+        )
+
+
+    @discord.ui.button(
+        label="إغلاق",
+        emoji="⏹️",
+        style=discord.ButtonStyle.danger
+    )
+    async def close_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(
+            embed=make_embed(
+                "📜 سجل الفعاليات",
+                "🔒 تم إغلاق سجل الفعاليات.",
+                COLORS["silver"]
+            ),
+            view=self
+        )
+
+        self.stop()
+
+
+    @discord.ui.button(
+        label="التالي",
+        emoji="▶️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def next_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if self.page < self.total_pages - 1:
+            self.page += 1
+
+        self.update_buttons()
+
+        await interaction.response.edit_message(
+            embed=self.create_embed(),
+            view=self
+        )
+
+
+    async def on_timeout(self):
+
+        for item in self.children:
+            item.disabled = True
+
+
+# =========================================================
+# 📜 أمر سجل الفعاليات
+# =========================================================
+
+@bot.command(
+    name="سجل-الفعاليات"
+)
+async def events_history(
+    ctx
+):
+
+    if not ctx.guild:
+
+        return await ctx.send(
+            "❌ هذا الأمر يعمل داخل السيرفر فقط."
+        )
+
+    events = load_events()
+
+    # -----------------------------------------
+    # فلترة فعاليات السيرفر
+    # -----------------------------------------
+
+    guild_events = []
+
+    for event in events:
+
+        event_guild_id = event.get(
+            "guild_id"
+        )
+
+        if event_guild_id is None:
+
+            # دعم السجلات القديمة
+            guild_events.append(
+                event
+            )
+
+            continue
+
+        try:
+
+            if int(event_guild_id) == ctx.guild.id:
+                guild_events.append(
+                    event
+                )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+            continue
+
+    # -----------------------------------------
+    # ترتيب الأحدث أولاً
+    # -----------------------------------------
+
+    guild_events.reverse()
+
+    if not guild_events:
+
+        return await ctx.send(
+            embed=make_embed(
+                "📜 سجل فعاليات كأس المنازل",
+                (
+                    "❌ لا توجد فعاليات مسجلة حتى الآن.\n\n"
+                    "يمكن للمشرف استخدام:\n"
+                    "`!تسجيل-فعالية`"
+                ),
+                COLORS["blue"]
+            )
+        )
+
+    view = EventHistoryView(
+        ctx.author,
+        guild_events
+    )
+
+    await ctx.send(
+        embed=view.create_embed(),
+        view=view
+    )
+
+
+# =========================================================
+# 🗑️ حذف فعالية
+# =========================================================
+
+@bot.command(
+    name="حذف-فعالية"
+)
+async def delete_event(
+    ctx,
+    event_id: int = None
+):
+
+    if not ctx.guild:
+
+        return await ctx.send(
+            "❌ هذا الأمر يعمل داخل السيرفر فقط."
+        )
+
+    if not can_manage_cup(
+        ctx.author
+    ):
+
+        return await ctx.send(
+            "❌ ليس لديك صلاحية حذف فعاليات.",
+            delete_after=10
+        )
+
+    if event_id is None:
+
+        return await ctx.send(
+            embed=make_embed(
+                "🗑️ حذف فعالية",
+                (
+                    "استخدم الأمر بهذا الشكل:\n\n"
+                    "`!حذف-فعالية 1`\n\n"
+                    "حيث **1** هو رقم الفعالية."
+                ),
+                COLORS["danger"]
+            )
+        )
+
+    events = load_events()
+
+    found_event = None
+    new_events = []
+
+    for event in events:
+
+        try:
+
+            current_id = int(
+                event.get(
+                    "id",
+                    event.get(
+                        "event_id",
+                        -1
+                    )
+                )
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            current_id = -1
+
+        event_guild_id = event.get(
+            "guild_id"
+        )
+
+        same_guild = (
+            event_guild_id is None
+            or str(event_guild_id)
+            == str(ctx.guild.id)
+        )
+
+        if (
+            current_id == event_id
+            and same_guild
+            and found_event is None
+        ):
+
+            found_event = event
+
+            continue
+
+        new_events.append(
+            event
+        )
+
+    if not found_event:
+
+        return await ctx.send(
+            embed=make_embed(
+                "❌ لم يتم العثور على الفعالية",
+                f"لا توجد فعالية بالرقم `{event_id}`.",
+                COLORS["danger"]
+            )
+        )
+
+    if not save_events(
+        new_events
+    ):
+
+        return await ctx.send(
+            "❌ حدث خطأ أثناء تحديث ملف الفعاليات."
+        )
+
+    name = event_value(
+        found_event,
+        "name",
+        "title",
+        "event_name",
+        default="فعالية"
+    )
+
+    await ctx.send(
+        embed=make_embed(
+            "🗑️ تم حذف الفعالية",
+            (
+                f"🆔 **رقم الفعالية:** `{event_id}`\n"
+                f"🎪 **الفعالية:** {name}\n\n"
+                "تم حذفها من سجل الفعاليات بنجاح."
+            ),
+            COLORS["danger"]
+        )
+    )
+
+
+# =========================================================
 # ⚔️ نظام المبارزات السحرية
 # =========================================================
 
@@ -1309,9 +2164,7 @@ active_duels = {}
 
 SPELLS = {
 
-    # -----------------------------
     # ⚔️ هجوم
-    # -----------------------------
 
     "stupefy": {
         "name": "ستوبيفاي",
@@ -1417,9 +2270,7 @@ SPELLS = {
         "damage": 18
     },
 
-    # -----------------------------
     # 🌀 تحكم
-    # -----------------------------
 
     "impedimenta": {
         "name": "إمبيديمينتا",
@@ -1493,9 +2344,7 @@ SPELLS = {
         "control": 1
     },
 
-    # -----------------------------
     # 🛡️ دفاع
-    # -----------------------------
 
     "protego": {
         "name": "بروتيجو",
@@ -1530,9 +2379,7 @@ SPELLS = {
         "shield": 35
     },
 
-    # -----------------------------
     # 💚 علاج
-    # -----------------------------
 
     "episkey": {
         "name": "إبيسكي",
@@ -1558,9 +2405,7 @@ SPELLS = {
         "heal": 85
     },
 
-    # -----------------------------
     # ✨ مساعدات
-    # -----------------------------
 
     "accio": {
         "name": "آكيو",
@@ -1608,8 +2453,8 @@ class Duel:
 
     def __init__(
         self,
-        player1: discord.Member,
-        player2: discord.Member
+        player1,
+        player2
     ):
 
         self.player1 = player1
@@ -1641,15 +2486,10 @@ class Duel:
         }
 
         self.round_number = 0
-
         self.current_spells = {}
-
         self.selections = {}
-
         self.message = None
-
         self.finished = False
-
         self.created_at = datetime.utcnow()
 
 
@@ -1697,7 +2537,9 @@ class Duel:
             + random.sample(heals, 1)
         )
 
-        random.shuffle(selected)
+        random.shuffle(
+            selected
+        )
 
         return selected
 
@@ -1712,7 +2554,9 @@ class Duel:
         total_blocks = 10
 
         filled = round(
-            hp / MAX_HP * total_blocks
+            hp
+            / MAX_HP
+            * total_blocks
         )
 
         filled = max(
@@ -1725,7 +2569,9 @@ class Duel:
 
         return (
             "🟩" * filled
-            + "⬛" * (total_blocks - filled)
+            + "⬛" * (
+                total_blocks - filled
+            )
         )
 
 
@@ -1739,7 +2585,9 @@ class Duel:
         total_blocks = 10
 
         filled = round(
-            mp / MAX_MP * total_blocks
+            mp
+            / MAX_MP
+            * total_blocks
         )
 
         filled = max(
@@ -1752,13 +2600,15 @@ class Duel:
 
         return (
             "🔵" * filled
-            + "⬛" * (total_blocks - filled)
+            + "⬛" * (
+                total_blocks - filled
+            )
         )
 
 
     def status_text(
         self,
-        user: discord.Member
+        user
     ):
 
         uid = user.id
@@ -1773,7 +2623,10 @@ class Duel:
         )
 
         if self.stunned[uid] > 0:
-            status += "\n🌀 **مُقيّد هذه الجولة**"
+
+            status += (
+                "\n🌀 **مُقيّد هذه الجولة**"
+            )
 
         return status
 
@@ -1782,7 +2635,9 @@ class Duel:
 # 🎯 زر التعويذة
 # =========================================================
 
-class SpellButton(discord.ui.Button):
+class SpellButton(
+    discord.ui.Button
+):
 
     def __init__(
         self,
@@ -1797,27 +2652,33 @@ class SpellButton(discord.ui.Button):
         spell_type = spell["type"]
 
         if spell_type == "attack":
+
             style = discord.ButtonStyle.danger
             emoji = "⚔️"
 
         elif spell_type == "defense":
+
             style = discord.ButtonStyle.primary
             emoji = "🛡️"
 
         elif spell_type == "control":
+
             style = discord.ButtonStyle.secondary
             emoji = "🌀"
 
         elif spell_type == "heal":
+
             style = discord.ButtonStyle.success
             emoji = "💚"
 
         else:
+
             style = discord.ButtonStyle.secondary
             emoji = "✨"
 
         label = (
-            f"{spell['name']} • {spell['cost']}💧"
+            f"{spell['name']} • "
+            f"{spell['cost']}💧"
         )
 
         super().__init__(
@@ -1838,6 +2699,7 @@ class SpellButton(discord.ui.Button):
         duel = self.duel
 
         if duel.finished:
+
             return await interaction.response.send_message(
                 "❌ هذه المبارزة انتهت.",
                 ephemeral=True
@@ -1847,6 +2709,7 @@ class SpellButton(discord.ui.Button):
             duel.player1.id,
             duel.player2.id
         ]:
+
             return await interaction.response.send_message(
                 "❌ أنت لست طرفاً في هذه المبارزة.",
                 ephemeral=True
@@ -1855,6 +2718,7 @@ class SpellButton(discord.ui.Button):
         uid = interaction.user.id
 
         if uid in duel.selections:
+
             return await interaction.response.send_message(
                 "⚠️ لقد اخترت تعويذتك بالفعل في هذه الجولة.",
                 ephemeral=True
@@ -1865,6 +2729,7 @@ class SpellButton(discord.ui.Button):
         ]
 
         if duel.mp[uid] < spell["cost"]:
+
             return await interaction.response.send_message(
                 (
                     f"❌ لا تملك مانا كافية.\n"
@@ -1886,11 +2751,16 @@ class SpellButton(discord.ui.Button):
             ephemeral=True
         )
 
-        if len(duel.selections) == 2:
+        if len(
+            duel.selections
+        ) == 2:
+
             await process_duel_round(
                 duel
             )
+
         else:
+
             await update_duel_waiting_message(
                 duel
             )
@@ -1900,7 +2770,9 @@ class SpellButton(discord.ui.Button):
 # ⚔️ View المبارزة
 # =========================================================
 
-class DuelSpellView(discord.ui.View):
+class DuelSpellView(
+    discord.ui.View
+):
 
     def __init__(
         self,
@@ -1923,7 +2795,9 @@ class DuelSpellView(discord.ui.View):
             )
 
 
-    async def on_timeout(self):
+    async def on_timeout(
+        self
+    ):
 
         if self.duel.finished:
             return
@@ -1993,9 +2867,11 @@ async def update_duel_waiting_message(
     )
 
     try:
+
         await duel.message.edit(
             embed=embed
         )
+
     except Exception:
         pass
 
@@ -2013,7 +2889,10 @@ def make_duel_embed(
     p2 = duel.player2
 
     embed = discord.Embed(
-        title=f"⚔️ المبارزة السحرية — الجولة {duel.round_number}",
+        title=(
+            f"⚔️ المبارزة السحرية — "
+            f"الجولة {duel.round_number}"
+        ),
         description=description,
         color=0x5B2C83
     )
@@ -2067,18 +2946,11 @@ async def process_duel_round(
         spell2_key
     ]
 
-    # -----------------------------------------
-    # خصم المانا
-    # -----------------------------------------
-
     duel.mp[id1] -= spell1["cost"]
     duel.mp[id2] -= spell2["cost"]
 
     round_messages = []
 
-    # -----------------------------------------
-    # تنفيذ تعويذة لاعب
-    # -----------------------------------------
 
     def cast(
         caster,
@@ -2089,7 +2961,6 @@ async def process_duel_round(
         cid = caster.id
         tid = target.id
 
-        # إذا كان اللاعب مقيّداً
         if duel.stunned[cid] > 0:
 
             duel.stunned[cid] -= 1
@@ -2121,9 +2992,7 @@ async def process_duel_round(
 
         spell_type = spell["type"]
 
-        # -----------------------------
         # ⚔️ هجوم
-        # -----------------------------
 
         if spell_type == "attack":
 
@@ -2135,7 +3004,6 @@ async def process_duel_round(
             )
 
             duel.shield[tid] -= blocked
-
             damage -= blocked
 
             duel.hp[tid] = max(
@@ -2158,9 +3026,7 @@ async def process_duel_round(
                 f"وألحق **{damage} ضرر**."
             )
 
-        # -----------------------------
         # 🛡️ دفاع
-        # -----------------------------
 
         if spell_type == "defense":
 
@@ -2174,6 +3040,7 @@ async def process_duel_round(
             if spell.get(
                 "cleanse"
             ):
+
                 duel.stunned[cid] = 0
 
             return (
@@ -2182,9 +3049,7 @@ async def process_duel_round(
                 f"🛡️ الدرع: +{shield}"
             )
 
-        # -----------------------------
         # 🌀 تحكم
-        # -----------------------------
 
         if spell_type == "control":
 
@@ -2197,9 +3062,7 @@ async def process_duel_round(
                 "⛓️ تم تقييد الخصم للجولة التالية."
             )
 
-        # -----------------------------
         # 💚 علاج
-        # -----------------------------
 
         if spell_type == "heal":
 
@@ -2236,9 +3099,7 @@ async def process_duel_round(
                 f"**{healed} HP**."
             )
 
-        # -----------------------------
         # ✨ مساعد
-        # -----------------------------
 
         if spell_type == "auxiliary":
 
@@ -2296,9 +3157,6 @@ async def process_duel_round(
 
         return "✨ تم تنفيذ التعويذة."
 
-    # -----------------------------------------
-    # التنفيذ
-    # -----------------------------------------
 
     first_message = cast(
         p1,
@@ -2320,10 +3178,7 @@ async def process_duel_round(
         second_message
     )
 
-    # -----------------------------------------
-    # استعادة المانا
-    # نصف ما تم استهلاكه
-    # -----------------------------------------
+    # 💧 استعادة نصف تكلفة التعويذة
 
     mana_recovery_1 = max(
         1,
@@ -2355,14 +3210,15 @@ async def process_duel_round(
 
     duel.selections.clear()
 
-    # -----------------------------------------
-    # تحديد الفائز
-    # -----------------------------------------
-
     winner = None
     loser = None
 
-    if duel.hp[id1] <= 0 and duel.hp[id2] <= 0:
+    # 🤝 تعادل
+
+    if (
+        duel.hp[id1] <= 0
+        and duel.hp[id2] <= 0
+    ):
 
         duel.finished = True
 
@@ -2377,7 +3233,9 @@ async def process_duel_round(
         )
 
         description = (
-            "\n\n".join(round_messages)
+            "\n\n".join(
+                round_messages
+            )
             + "\n\n"
             "🤝 **انتهت المبارزة بالتعادل!**"
         )
@@ -2417,9 +3275,7 @@ async def process_duel_round(
         winner = p1
         loser = p2
 
-    # -----------------------------------------
-    # فوز
-    # -----------------------------------------
+    # 🏆 فوز
 
     if winner:
 
@@ -2436,7 +3292,9 @@ async def process_duel_round(
         )
 
         description = (
-            "\n\n".join(round_messages)
+            "\n\n".join(
+                round_messages
+            )
             + "\n\n"
             f"🏆 **الفائز:** {winner.mention}\n"
             f"💫 **المهزوم:** {loser.mention}"
@@ -2467,14 +3325,16 @@ async def process_duel_round(
 
         return
 
-    # -----------------------------------------
-    # جولة جديدة
-    # -----------------------------------------
+    # 🔮 جولة جديدة
 
-    duel.current_spells = duel.random_spells()
+    duel.current_spells = (
+        duel.random_spells()
+    )
 
     description = (
-        "\n\n".join(round_messages)
+        "\n\n".join(
+            round_messages
+        )
         + "\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "✨ **جولة جديدة!**\n"
@@ -2509,7 +3369,11 @@ def load_duel_data():
         LEADERBOARD_FILE
     )
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict
+    ):
+
         data = {}
 
     if "players" not in data:
@@ -2521,7 +3385,9 @@ def load_duel_data():
     return data
 
 
-def save_duel_data(data):
+def save_duel_data(
+    data
+):
 
     save_json_file(
         LEADERBOARD_FILE,
@@ -2594,7 +3460,11 @@ def save_duel_result(
     data["matches"].append({
         "player1_id": duel.player1.id,
         "player2_id": duel.player2.id,
-        "winner_id": winner.id if winner else None,
+        "winner_id": (
+            winner.id
+            if winner
+            else None
+        ),
         "result": result,
         "rounds": duel.round_number,
         "created_at": datetime.utcnow().strftime(
@@ -2602,7 +3472,6 @@ def save_duel_result(
         )
     })
 
-    # الاحتفاظ بآخر 500 مبارزة
     data["matches"] = data[
         "matches"
     ][-500:]
@@ -2616,7 +3485,9 @@ def save_duel_result(
 # ⚔️ طلب مبارزة
 # =========================================================
 
-class DuelRequestView(discord.ui.View):
+class DuelRequestView(
+    discord.ui.View
+):
 
     def __init__(
         self,
@@ -2745,7 +3616,9 @@ class DuelRequestView(discord.ui.View):
 # ⚔️ أمر مبارزة
 # =========================================================
 
-@bot.command(name="مبارزة")
+@bot.command(
+    name="مبارزة"
+)
 async def duel_command(
     ctx,
     opponent: discord.Member = None
@@ -2799,7 +3672,7 @@ async def duel_command(
             f"🧙 **المدعو:** {opponent.mention}\n\n"
             "هل تقبل دخول المبارزة؟\n\n"
             "❤️ **HP:** 200\n"
-            "💧 **Mana:** 100"
+            "💧 **Mana:** 400"
         ),
         COLORS["magic"]
     )
@@ -2820,7 +3693,9 @@ async def duel_command(
 # 📜 سجل مبارزات لاعب
 # =========================================================
 
-@bot.command(name="سجل-مبارزاتي")
+@bot.command(
+    name="سجل-مبارزاتي"
+)
 async def my_duel_history(
     ctx
 ):
@@ -2887,7 +3762,9 @@ async def my_duel_history(
 # 🏆 ترتيب المبارزين
 # =========================================================
 
-@bot.command(name="ترتيب-المبارزين")
+@bot.command(
+    name="ترتيب-المبارزين"
+)
 async def duel_leaderboard(
     ctx
 ):
@@ -2941,36 +3818,21 @@ async def duel_leaderboard(
         "🔟"
     ]
 
-    for index, (user_id, stats) in enumerate(
+    for index, (
+        user_id,
+        stats
+    ) in enumerate(
         sorted_players[:10]
     ):
 
-        medal = medals[index]
-
-        wins = stats.get(
-            "wins",
-            0
-        )
-
-        losses = stats.get(
-            "losses",
-            0
-        )
-
-        draws = stats.get(
-            "draws",
-            0
-        )
-
-        # استخدام المنشن وليس الاسم
         mention = f"<@{user_id}>"
 
         embed.add_field(
-            name=f"{medal} {mention}",
+            name=f"{medals[index]} {mention}",
             value=(
-                f"🏆 **{wins}** انتصار | "
-                f"💫 **{losses}** خسارة | "
-                f"🤝 **{draws}** تعادل"
+                f"🏆 **{stats.get('wins', 0)}** انتصار | "
+                f"💫 **{stats.get('losses', 0)}** خسارة | "
+                f"🤝 **{stats.get('draws', 0)}** تعادل"
             ),
             inline=False
         )
@@ -2984,7 +3846,9 @@ async def duel_leaderboard(
 # 📜 آخر المبارزات
 # =========================================================
 
-@bot.command(name="سجل-المبارزات")
+@bot.command(
+    name="سجل-المبارزات"
+)
 async def duel_matches_history(
     ctx
 ):
@@ -3021,13 +3885,8 @@ async def duel_matches_history(
         start=1
     ):
 
-        p1 = (
-            f"<@{match['player1_id']}>"
-        )
-
-        p2 = (
-            f"<@{match['player2_id']}>"
-        )
+        p1 = f"<@{match['player1_id']}>"
+        p2 = f"<@{match['player2_id']}>"
 
         winner_id = match.get(
             "winner_id"
@@ -3062,10 +3921,12 @@ async def duel_matches_history(
 
 
 # =========================================================
-# 📊 أمر حالة المبارزة
+# 📊 حالة المبارزة
 # =========================================================
 
-@bot.command(name="مبارزتي")
+@bot.command(
+    name="مبارزتي"
+)
 async def duel_status(
     ctx
 ):
@@ -3106,7 +3967,9 @@ async def duel_status(
 # 📚 معلومات التعاويذ
 # =========================================================
 
-@bot.command(name="التعاويذ")
+@bot.command(
+    name="التعاويذ"
+)
 async def spells_command(
     ctx
 ):
@@ -3151,7 +4014,9 @@ async def spells_command(
     embed.add_field(
         name="⚔️ الهجوم",
         value="\n".join(
-            f"• {x['name']} — {x['accuracy']}% — {x['cost']}💧"
+            f"• {x['name']} — "
+            f"{x['accuracy']}% — "
+            f"{x['cost']}💧"
             for x in attacks
         ),
         inline=False
@@ -3160,7 +4025,9 @@ async def spells_command(
     embed.add_field(
         name="🌀 التحكم",
         value="\n".join(
-            f"• {x['name']} — {x['accuracy']}% — {x['cost']}💧"
+            f"• {x['name']} — "
+            f"{x['accuracy']}% — "
+            f"{x['cost']}💧"
             for x in controls
         ),
         inline=False
@@ -3169,7 +4036,9 @@ async def spells_command(
     embed.add_field(
         name="🛡️ الدفاع",
         value="\n".join(
-            f"• {x['name']} — {x['accuracy']}% — {x['cost']}💧"
+            f"• {x['name']} — "
+            f"{x['accuracy']}% — "
+            f"{x['cost']}💧"
             for x in defenses
         ),
         inline=False
@@ -3178,7 +4047,9 @@ async def spells_command(
     embed.add_field(
         name="💚 العلاج",
         value="\n".join(
-            f"• {x['name']} — {x['accuracy']}% — {x['cost']}💧"
+            f"• {x['name']} — "
+            f"{x['accuracy']}% — "
+            f"{x['cost']}💧"
             for x in heals
         ),
         inline=False
@@ -3190,10 +4061,12 @@ async def spells_command(
 
 
 # =========================================================
-# 🧹 إلغاء مبارزة للمشرف
+# 🧹 إلغاء مبارزة
 # =========================================================
 
-@bot.command(name="إلغاء-المبارزة")
+@bot.command(
+    name="إلغاء-المبارزة"
+)
 @commands.has_permissions(
     administrator=True
 )
@@ -3248,7 +4121,7 @@ async def cancel_duel(
 
 
 # =========================================================
-# 🐛 معالجة أخطاء الأوامر
+# 🐛 معالجة الأخطاء
 # =========================================================
 
 @duel_command.error
@@ -3283,6 +4156,22 @@ async def cancel_duel_error(
         )
 
 
+@delete_event.error
+async def delete_event_error(
+    ctx,
+    error
+):
+
+    if isinstance(
+        error,
+        commands.BadArgument
+    ):
+
+        await ctx.send(
+            "❌ رقم الفعالية يجب أن يكون رقماً صحيحاً."
+        )
+
+
 # =========================================================
 # 🧙 الأحداث
 # =========================================================
@@ -3291,6 +4180,12 @@ async def cancel_duel_error(
 async def on_ready():
 
     init_db()
+
+    for guild in bot.guilds:
+
+        ensure_guild(
+            guild.id
+        )
 
     try:
 
