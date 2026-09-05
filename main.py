@@ -216,7 +216,7 @@ async def sorting_hat(ctx):
     await ctx.send(embed=make_embed("🎩 قبعة التنسيق", "اضغط الزر لبدء الاختبار."), view=view)
 
 # =========================================================
-# 🎪 نظام الفعاليات المتكامل (مُحدث)
+# 🎪 نظام الفعاليات المتكامل (مُحدث مع التشخيص)
 # =========================================================
 
 def create_event(guild_id: int, name: str, description: str, creator_id: int):
@@ -243,8 +243,9 @@ def get_event(guild_id: int, event_id: int):
 def get_all_events(guild_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM events WHERE active = 1 ORDER BY id DESC")
+    cur.execute("SELECT * FROM events")
     events = cur.fetchall()
+    print(f"DEBUG: الفعاليات الموجودة في قاعدة البيانات حالياً = {len(events)}")
     conn.close()
     return events
 
@@ -298,14 +299,15 @@ async def list_events(ctx):
     if not ctx.guild: return
     events = get_all_events(ctx.guild.id)
     if not events: 
-        return await ctx.send(embed=make_embed("📚 سجل الفعاليات", "لا توجد فعاليات مسجلة.", COLORS["blue"]))
+        return await ctx.send(embed=make_embed("📚 سجل الفعاليات", "لا توجد أي فعاليات مسجلة في قاعدة البيانات حتى الآن.", COLORS["blue"]))
     
-    embed = make_embed("📚 سجل الفعاليات", "جميع الفعاليات المحفوظة في النظام:")
+    embed = make_embed("📚 سجل الفعاليات", f"إجمالي الفعاليات المسجلة: {len(events)}")
     for ev in events[:25]:
         desc_text = ev['description'][:100] + "..." if len(ev['description']) > 100 else ev['description']
+        status = "نشطة" if ev.get('active', 1) == 1 else "محذوفة"
         embed.add_field(
-            name=f"🎪 {ev['name']}", 
-            value=f"🆔 الرقم: `{ev['id']}`\n📝 {desc_text}", 
+            name=f"🎪 {ev['name']} (ID: {ev['id']})", 
+            value=f"📝 {desc_text}\n📌 الحالة: {status}", 
             inline=False
         )
     await ctx.send(embed=embed)
