@@ -216,7 +216,7 @@ async def sorting_hat(ctx):
     await ctx.send(embed=make_embed("🎩 قبعة التنسيق", "اضغط الزر لبدء الاختبار."), view=view)
 
 # =========================================================
-# 🎪 نظام الفعاليات المتكامل
+# 🎪 نظام الفعاليات المتكامل (مُحدث)
 # =========================================================
 
 def create_event(guild_id: int, name: str, description: str, creator_id: int):
@@ -235,7 +235,7 @@ def create_event(guild_id: int, name: str, description: str, creator_id: int):
 def get_event(guild_id: int, event_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM events WHERE guild_id = ? AND id = ? AND active = 1", (guild_id, event_id))
+    cur.execute("SELECT * FROM events WHERE id = ? AND active = 1", (event_id,))
     event = cur.fetchone()
     conn.close()
     return event
@@ -243,7 +243,7 @@ def get_event(guild_id: int, event_id: int):
 def get_all_events(guild_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM events WHERE guild_id = ? AND active = 1 ORDER BY id DESC", (guild_id,))
+    cur.execute("SELECT * FROM events WHERE active = 1 ORDER BY id DESC")
     events = cur.fetchall()
     conn.close()
     return events
@@ -251,7 +251,7 @@ def get_all_events(guild_id: int):
 def delete_event(guild_id: int, event_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE events SET active = 0, updated_at = ? WHERE guild_id = ? AND id = ? AND active = 1", (datetime.utcnow().isoformat(), guild_id, event_id))
+    cur.execute("UPDATE events SET active = 0, updated_at = ? WHERE id = ? AND active = 1", (datetime.utcnow().isoformat(), event_id))
     deleted = cur.rowcount > 0
     conn.commit()
     conn.close()
@@ -260,7 +260,7 @@ def delete_event(guild_id: int, event_id: int):
 def update_event(guild_id: int, event_id: int, name: str, description: str):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE events SET name = ?, description = ?, updated_at = ? WHERE guild_id = ? AND id = ? AND active = 1", (name.strip(), description.strip(), datetime.utcnow().isoformat(), guild_id, event_id))
+    cur.execute("UPDATE events SET name = ?, description = ?, updated_at = ? WHERE id = ? AND active = 1", (name.strip(), description.strip(), datetime.utcnow().isoformat(), event_id))
     updated = cur.rowcount > 0
     conn.commit()
     conn.close()
@@ -297,10 +297,17 @@ async def register_event(ctx):
 async def list_events(ctx):
     if not ctx.guild: return
     events = get_all_events(ctx.guild.id)
-    if not events: return await ctx.send(embed=make_embed("📚 سجل الفعاليات", "لا توجد فعاليات مسجلة.", COLORS["blue"]))
-    embed = make_embed("📚 سجل الفعاليات", "الفعاليات المحفوظة:")
+    if not events: 
+        return await ctx.send(embed=make_embed("📚 سجل الفعاليات", "لا توجد فعاليات مسجلة.", COLORS["blue"]))
+    
+    embed = make_embed("📚 سجل الفعاليات", "جميع الفعاليات المحفوظة في النظام:")
     for ev in events[:25]:
-        embed.add_field(name=f"🎪 {ev['name']}", value=f"🆔 الرقم: `{ev['id']}`", inline=False)
+        desc_text = ev['description'][:100] + "..." if len(ev['description']) > 100 else ev['description']
+        embed.add_field(
+            name=f"🎪 {ev['name']}", 
+            value=f"🆔 الرقم: `{ev['id']}`\n📝 {desc_text}", 
+            inline=False
+        )
     await ctx.send(embed=embed)
 
 @bot.command(name="فعالية")
